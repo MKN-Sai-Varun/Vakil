@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { createSession, getSession, getTurns } from '../db/sessions';
-import { runStubNegotiation } from '../orchestrator/orchestrator';
+import { runNegotiation } from '../orchestrator/orchestrator';
 
 export const sessionsRouter = Router();
 
@@ -13,8 +13,10 @@ sessionsRouter.post('/', async (req, res) => {
   res.json(session);
 });
 
-sessionsRouter.post('/:id/run-stub', async (req, res) => {
-  const result = await runStubNegotiation(req.params.id);
+sessionsRouter.post('/:id/run', async (req, res) => {
+  const session = await getSession(req.params.id);
+  if (!session) return res.status(404).json({ error: 'not found' });
+  const result = await runNegotiation(req.params.id, session.catalog_item_id, session.buyer_mandate_id);
   res.json(result);
 });
 
