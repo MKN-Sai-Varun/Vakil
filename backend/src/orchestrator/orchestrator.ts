@@ -6,6 +6,7 @@ import { BuyerMove, MerchantMove } from '../agents/schema';
 import { checkMandate } from '../gates/mandateGate';
 import { checkPolicy } from '../gates/policyGate';
 import { executeDeal } from '../executor/dealExecutor';
+import { logAuditEvent } from '../db/audit';
 
 const MAX_TURNS = 10;
 
@@ -17,6 +18,11 @@ function formatHistory(turns: any[]): string {
 }
 
 export async function runNegotiation(sessionId: string, catalogItemId: string, mandateId: string) {
+  const existingTurns = await getTurns(sessionId);
+  if (existingTurns.length > 0) {
+    console.warn(`[orchestrator] runNegotiation called again for session ${sessionId} which already has ${existingTurns.length} turns — refusing to run concurrently.`);
+    return { converged: false, turnsUsed: 0, reason: 'Session already has turns in progress or completed — refusing duplicate execution.' };
+  }
   let turn = 0;
   let converged = false;
   let currentOffer: { unit_price: number; quantity: number } | null = null;
@@ -143,7 +149,11 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
     } else if (policyCheck.result === 'adjusted') {
       merchantPolicyResult = 'adjusted';
       merchantReason = policyCheck.reason;
-      merchantFinalMove = { ...merchantRaw, unit_price: policyCheck.adjustedPrice };
+      merchantFinalMove = {
+        ...merchantRaw,
+        unit_price: policyCheck.adjustedPrice,
+        rationale: `Offering ₹${policyCheck.adjustedPrice} per unit — the best price available today given our current discount limits.`,
+      };
     }
 
     await appendTurn(sessionId, 'merchant', merchantFinalMove, merchantPolicyResult, merchantReason);
@@ -152,10 +162,43 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
     const merchantUnitPrice: number | null = merchantFinalMove.unit_price;
     const merchantQuantity: number = merchantFinalMove.quantity;
 
-    if (merchantType === 'accept') {
+        if (merchantType === 'accept') {
+      // Re-validate: merchant's accepted price may have been gate-adjusted, so it must be
+      // re-checked against the buyer's mandate before we treat this as converged.
+      const finalCheck = checkMandate(
+        {
+          type: 'accept',
+          unit_price: merchantUnitPrice,
+          quantity: merchantQuantity,
+          total: (merchantUnitPrice ?? 0) * merchantQuantity,
+        },
+        {
+          max_total_spend: Number(mandate.max_total_spend),
+          spend_used: Number(mandate.spend_used),
+          max_unit_price: Number(mandate.max_unit_price),
+          category_allowlist: mandate.category_allowlist,
+          expires_at: mandate.expires_at,
+        }
+      );
+
+      if (finalCheck.result === 'blocked') {
+        await appendTurn(
+          sessionId,
+          'buyer',
+          { type: 'walk_away', unit_price: null, quantity: merchantQuantity, total: 0, rationale: 'This adjusted price is outside what we can accept.' },
+          'blocked',
+          finalCheck.reason
+        );
+        await updateSessionStatus(sessionId, 'failed');
+        return { converged: false, turnsUsed: turn, reason: finalCheck.reason };
+      }
+
       converged = true;
       console.log('[orchestrator] merchant accepted, currentOffer:', currentOffer);
       if (currentOffer) {
+        const discountGiven = (Number(catalogItem.base_price) - currentOffer.unit_price) * currentOffer.quantity;
+        if (discountGiven > 0) await updateDiscountUsed(catalogItemId, discountGiven);
+        await updateMandateSpend(mandateId, currentOffer.unit_price * currentOffer.quantity);
         try {
           const execResult = await executeDeal(sessionId, catalogItemId, mandateId, {
             unit_price: currentOffer.unit_price,
@@ -164,9 +207,7 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
           });
           console.log('[orchestrator] executeDeal result:', execResult);
           if (!execResult.blocked) {
-            const discountGiven = (Number(catalogItem.base_price) - currentOffer.unit_price) * currentOffer.quantity;
-            if (discountGiven > 0) await updateDiscountUsed(catalogItemId, discountGiven);
-            await updateMandateSpend(mandateId, currentOffer.unit_price * currentOffer.quantity);
+            // already updated above; kept structure consistent with existing pattern
           }
         } catch (err) {
           console.error('[orchestrator] executeDeal threw an error:', err);
@@ -186,5 +227,17 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
   } // <-- closes the while loop
 
   await updateSessionStatus(sessionId, converged ? 'converged' : 'failed');
-  return { converged, turnsUsed: turn };
+
+  if (!converged) {
+    await logAuditEvent(null, 'negotiation_exhausted', {
+      session_id: sessionId,
+      reason: `No agreement reached within ${MAX_TURNS} turns`,
+    });
+  }
+
+  return {
+    converged,
+    turnsUsed: turn,
+    reason: converged ? undefined : `No agreement reached within ${MAX_TURNS} turns`,
+  };
 }

@@ -16,8 +16,14 @@ sessionsRouter.post('/', async (req, res) => {
 sessionsRouter.post('/:id/run', async (req, res) => {
   const session = await getSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'not found' });
-  const result = await runNegotiation(req.params.id, session.catalog_item_id, session.buyer_mandate_id);
-  res.json(result);
+
+  // Respond immediately — negotiation runs in the background.
+  // Frontend polls GET /sessions/:id to watch turns appear live.
+  res.json({ status: 'started' });
+
+  runNegotiation(req.params.id, session.catalog_item_id, session.buyer_mandate_id).catch((err) => {
+    console.error(`[orchestrator] negotiation ${req.params.id} failed:`, err);
+  });
 });
 
 sessionsRouter.get('/:id', async (req, res) => {
