@@ -59,7 +59,8 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
     if (mandateCheck.result === 'blocked') {
       buyerPolicyResult = 'blocked';
       buyerReason = mandateCheck.reason;
-      await appendTurn(sessionId, 'buyer', buyerRaw, buyerPolicyResult, buyerReason);
+      const correctedMove = { ...buyerRaw, type: 'walk_away' as const, rationale: 'This deal is outside what we can commit to.' };
+      await appendTurn(sessionId, 'buyer', correctedMove, buyerPolicyResult, buyerReason);
       await updateSessionStatus(sessionId, 'failed');
       return { converged: false, turnsUsed: turn, reason: mandateCheck.reason };
     } else if (mandateCheck.result === 'adjusted') {
@@ -135,7 +136,8 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
     if (policyCheck.result === 'blocked') {
       merchantPolicyResult = 'blocked';
       merchantReason = policyCheck.reason;
-      await appendTurn(sessionId, 'merchant', merchantRaw, merchantPolicyResult, merchantReason);
+      const correctedMove = { ...merchantRaw, type: 'reject' as const, rationale: 'This deal cannot be honored as proposed.' };
+      await appendTurn(sessionId, 'merchant', correctedMove, merchantPolicyResult, merchantReason);
       await updateSessionStatus(sessionId, 'failed');
       return { converged: false, turnsUsed: turn, reason: policyCheck.reason };
     } else if (policyCheck.result === 'adjusted') {

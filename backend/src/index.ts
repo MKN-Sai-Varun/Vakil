@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { sessionsRouter } from './routes/sessions';
 import { mandatesRouter } from './routes/mandates';
 import { catalogRouter } from './routes/catalog';
+import { ledgerRouter } from './routes/ledger';
 
 dotenv.config();
 
@@ -17,6 +18,7 @@ app.use(express.json());
 app.use('/sessions', sessionsRouter);
 app.use('/mandates', mandatesRouter);
 app.use('/catalog-items', catalogRouter);
+app.use('/ledger', ledgerRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Vakil backend running on port ${PORT}`));

@@ -22,7 +22,7 @@ export function checkPolicy(
   policy: CatalogItemPolicy
 ): PolicyResult {
   if (move.quantity > policy.inventory_qty) {
-    return { result: 'blocked', reason: `Requested quantity ${move.quantity} exceeds available inventory ${policy.inventory_qty}` };
+    return { result: 'blocked', reason: `Requested quantity ${move.quantity} exceeds available inventory ${policy.inventory_qty} — the agent's stated "${move.type}" could not be honored`};
   }
 
   if (move.unit_price === null) {
