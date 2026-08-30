@@ -5,6 +5,7 @@ import { proposeMerchantMove } from '../agents/merchantAgent';
 import { BuyerMove, MerchantMove } from '../agents/schema';
 import { checkMandate } from '../gates/mandateGate';
 import { checkPolicy } from '../gates/policyGate';
+import { executeDeal } from '../executor/dealExecutor';
 
 const MAX_TURNS = 10;
 
@@ -79,8 +80,23 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
 
     if (buyerType === 'accept') {
       converged = true;
+      console.log('[orchestrator] buyer accepted, currentOffer:', currentOffer);
       if (currentOffer) {
-        await updateMandateSpend(mandateId, currentOffer.unit_price * currentOffer.quantity);
+        try {
+          const execResult = await executeDeal(sessionId, catalogItemId, mandateId, {
+            unit_price: currentOffer.unit_price,
+            quantity: currentOffer.quantity,
+            total: currentOffer.unit_price * currentOffer.quantity,
+          });
+          console.log('[orchestrator] executeDeal result:', execResult);
+          if (!execResult.blocked) {
+            await updateMandateSpend(mandateId, currentOffer.unit_price * currentOffer.quantity);
+          }
+        } catch (err) {
+          console.error('[orchestrator] executeDeal threw an error:', err);
+        }
+      } else {
+        console.log('[orchestrator] currentOffer was null, executeDeal NOT called');
       }
       break;
     }
@@ -136,10 +152,25 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
 
     if (merchantType === 'accept') {
       converged = true;
+      console.log('[orchestrator] merchant accepted, currentOffer:', currentOffer);
       if (currentOffer) {
-        const discountGiven = (Number(catalogItem.base_price) - currentOffer.unit_price) * currentOffer.quantity;
-        if (discountGiven > 0) await updateDiscountUsed(catalogItemId, discountGiven);
-        await updateMandateSpend(mandateId, currentOffer.unit_price * currentOffer.quantity);
+        try {
+          const execResult = await executeDeal(sessionId, catalogItemId, mandateId, {
+            unit_price: currentOffer.unit_price,
+            quantity: currentOffer.quantity,
+            total: currentOffer.unit_price * currentOffer.quantity,
+          });
+          console.log('[orchestrator] executeDeal result:', execResult);
+          if (!execResult.blocked) {
+            const discountGiven = (Number(catalogItem.base_price) - currentOffer.unit_price) * currentOffer.quantity;
+            if (discountGiven > 0) await updateDiscountUsed(catalogItemId, discountGiven);
+            await updateMandateSpend(mandateId, currentOffer.unit_price * currentOffer.quantity);
+          }
+        } catch (err) {
+          console.error('[orchestrator] executeDeal threw an error:', err);
+        }
+      } else {
+        console.log('[orchestrator] currentOffer was null, executeDeal NOT called');
       }
       break;
     }
