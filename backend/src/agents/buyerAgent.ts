@@ -34,11 +34,30 @@ export async function proposeBuyerMove(ctx: BuyerContext): Promise<BuyerMove> {
 }
 
 function fallbackBuyerMove(ctx: BuyerContext): BuyerMove {
+  // Never echo an offer that violates our own constraints — clamp to our actual ceiling
+  const quantity = ctx.currentOffer?.quantity ?? 1;
+  const safeUnitPrice = Math.min(
+    ctx.currentOffer?.unit_price ?? ctx.maxUnitPrice,
+    ctx.maxUnitPrice
+  );
+  const total = safeUnitPrice * quantity;
+
+  // If even our own ceiling can't afford this quantity within remaining budget, walk away rather than propose an illegal deal
+  if (total > ctx.remainingSpend) {
+    return {
+      type: 'walk_away',
+      unit_price: null,
+      quantity,
+      total: 0,
+      rationale: 'This is outside what we can offer within our current budget.',
+    };
+  }
+
   return {
     type: 'counter',
-    unit_price: ctx.currentOffer?.unit_price ?? ctx.maxUnitPrice,
-    quantity: ctx.currentOffer?.quantity ?? 1,
-    total: (ctx.currentOffer?.unit_price ?? ctx.maxUnitPrice) * (ctx.currentOffer?.quantity ?? 1),
-    rationale: 'Fallback: holding current offer due to invalid or failed LLM response',
+    unit_price: safeUnitPrice,
+    quantity,
+    total,
+    rationale: 'Holding at our current position while we review the terms.',
   };
 }

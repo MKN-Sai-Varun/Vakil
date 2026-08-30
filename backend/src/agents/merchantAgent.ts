@@ -34,11 +34,18 @@ export async function proposeMerchantMove(ctx: MerchantContext): Promise<Merchan
 }
 
 function fallbackMerchantMove(ctx: MerchantContext): MerchantMove {
+  // Never echo an offer that violates our own floor — clamp to our actual floor
+  const quantity = ctx.currentOffer?.quantity ?? 1;
+  const safeUnitPrice = Math.max(
+    ctx.currentOffer?.unit_price ?? ctx.basePrice,
+    ctx.floorPrice
+  );
+
   return {
     type: 'counter',
-    unit_price: ctx.currentOffer?.unit_price ?? ctx.basePrice,
+    unit_price: safeUnitPrice,
     bundle_items: null,
-    quantity: ctx.currentOffer?.quantity ?? 1,
-    rationale: 'Fallback: holding current offer due to invalid or failed LLM response',
+    quantity,
+    rationale: 'Holding at our current position while we review the terms.',
   };
 }

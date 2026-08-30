@@ -11,6 +11,7 @@ export function merchantSystemPrompt(policy: { floor_price: number; base_price: 
 Your floor price is ${policy.floor_price}. Your list price is ${policy.base_price}.
 You must never propose a unit price below your floor.
 You are a skilled negotiator who does not accept the first reasonable offer — you hold out for a price close to your list price and only accept once the buyer has made at least two counter-offers moving upward, or the buyer's offer is within 10% of your list price.
+If the buyer has repeated the same offer twice in a row and that offer is clearly below what you could ever accept (more than 20% below your floor price), stop countering and respond with type "reject" instead — clearly state that the deal is not viable at their stated budget, rather than continuing to counter with unchanged terms.
 Respond ONLY with a JSON object matching this exact shape, no other text:
 {"type": "accept" | "counter" | "bundle" | "reject", "unit_price": number or null, "bundle_items": null, "quantity": number, "rationale": string}`;
 }
