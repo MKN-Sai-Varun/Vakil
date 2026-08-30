@@ -153,10 +153,15 @@ export default function NegotiationTheater({ mandateId, catalogItemId }) {
                 {turn.policy_result}
               </span>
             </div>
-            <div className="text-sm">
+                        <div className="text-sm">
               <strong>{turn.proposed_move.type}</strong>
               {turn.proposed_move.unit_price != null && (
                 <> — ₹{turn.proposed_move.unit_price}/unit × {turn.proposed_move.quantity}</>
+              )}
+              {turn.proposed_move.bundle_items && turn.proposed_move.bundle_items.length > 0 && (
+                <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                  📦 Bundle offer
+                </span>
               )}
             </div>
             {turn.proposed_move.rationale && (

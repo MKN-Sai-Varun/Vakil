@@ -7,7 +7,7 @@ import { checkMandate } from '../gates/mandateGate';
 import { checkPolicy } from '../gates/policyGate';
 import { executeDeal } from '../executor/dealExecutor';
 import { logAuditEvent } from '../db/audit';
-
+import { computeBundleOffer } from './bundleLogic';
 const MAX_TURNS = 10;
 
 function formatHistory(turns: any[]): string {
@@ -117,12 +117,46 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
     if (turn >= MAX_TURNS) break;
     // ---- MERCHANT TURN ----
     turn++;
-    const merchantRaw = await proposeMerchantMove({
+        let merchantRaw = await proposeMerchantMove({
       floorPrice: Number(catalogItem.floor_price),
       basePrice: Number(catalogItem.base_price),
       turnHistory: formatHistory(await getTurns(sessionId)),
       currentOffer,
+      canOfferBundle: Array.isArray(catalogItem.bundle_rules) && catalogItem.bundle_rules.length > 0,
     });
+
+    // Deterministic override: force a bundle offer when conditions are met,
+    // rather than relying on the LLM to choose this behavior reliably.
+        // Deterministic override: force a bundle offer when conditions are met,
+    // rather than relying on the LLM to choose this behavior reliably.
+    const bundleEnabled = Array.isArray(catalogItem.bundle_rules) && catalogItem.bundle_rules.length > 0;
+    const requestedQty = currentOffer?.quantity ?? 0;
+    const pastTurnsForBundleCheck = await getTurns(sessionId);
+    const alreadyOfferedBundleThisSession = pastTurnsForBundleCheck.some((t) => {
+      const move = typeof t.proposed_move === 'string' ? JSON.parse(t.proposed_move) : t.proposed_move;
+      return t.actor === 'merchant' && move?.type === 'bundle';
+    });
+    
+
+    if (
+      bundleEnabled &&
+      requestedQty >= 10 &&
+      merchantRaw.type === 'counter' &&
+      !alreadyOfferedBundleThisSession
+    ) {
+      const bundleTerms = computeBundleOffer(
+        requestedQty,
+        Number(catalogItem.base_price),
+        Number(catalogItem.floor_price)
+      );
+      merchantRaw = {
+        type: 'bundle',
+        unit_price: bundleTerms.unit_price,
+        bundle_items: [{ item_id: catalogItemId, quantity: bundleTerms.quantity }],
+        quantity: bundleTerms.quantity,
+        rationale: `We can offer a better rate at higher volume — ${bundleTerms.quantity} units at ₹${bundleTerms.unit_price} per unit.`,
+      };
+    }
 
     const policyCheck = checkPolicy(
       { type: merchantRaw.type, unit_price: merchantRaw.unit_price, quantity: merchantRaw.quantity },

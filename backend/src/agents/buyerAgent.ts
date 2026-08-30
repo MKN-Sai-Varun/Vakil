@@ -25,15 +25,17 @@ export async function proposeBuyerMove(ctx: BuyerContext): Promise<BuyerMove> {
     const parsed = BuyerMoveSchema.safeParse(JSON.parse(raw));
 
     if (!parsed.success) {
+      console.error('[buyerAgent] Schema validation failed. Raw response:', raw, 'Errors:', parsed.error);
       return fallbackBuyerMove(ctx);
     }
     return parsed.data;
   } catch (err) {
+    console.error('[buyerAgent] Groq call failed:', err);
     return fallbackBuyerMove(ctx);
   }
 }
 
-function fallbackBuyerMove(ctx: BuyerContext): BuyerMove {
+function fallbackBuyerMove(ctx: BuyerContext): BuyerMove & { _fallback: true } {
   // Never echo an offer that violates our own constraints — clamp to our actual ceiling
   const quantity = ctx.currentOffer?.quantity ?? 1;
   const safeUnitPrice = Math.min(
@@ -50,6 +52,7 @@ function fallbackBuyerMove(ctx: BuyerContext): BuyerMove {
       quantity,
       total: 0,
       rationale: 'This is outside what we can offer within our current budget.',
+      _fallback: true,
     };
   }
 
@@ -59,5 +62,6 @@ function fallbackBuyerMove(ctx: BuyerContext): BuyerMove {
     quantity,
     total,
     rationale: 'Holding at our current position while we review the terms.',
+    _fallback: true,
   };
 }

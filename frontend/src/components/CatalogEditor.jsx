@@ -8,6 +8,7 @@ export default function CatalogEditor({ merchantId, onCreated }) {
     floor_price: '',
     inventory_qty: '',
     daily_discount_budget: '',
+    allow_bundles:false
   });
   const [creating, setCreating] = useState(false);
 
@@ -22,6 +23,7 @@ export default function CatalogEditor({ merchantId, onCreated }) {
         floor_price: Number(form.floor_price),
         inventory_qty: Number(form.inventory_qty),
         daily_discount_budget: Number(form.daily_discount_budget),
+        bundle_rules: form.allow_bundles ? [{ min_quantity: 10, discount_pct: 5 }] : [],
       });
       onCreated(res.data.id);
     } finally {
@@ -37,6 +39,14 @@ export default function CatalogEditor({ merchantId, onCreated }) {
       <input type="number" placeholder="Floor price" value={form.floor_price} onChange={(e) => setForm({ ...form, floor_price: e.target.value })} className="w-full border rounded px-3 py-2" required />
       <input type="number" placeholder="Inventory quantity" value={form.inventory_qty} onChange={(e) => setForm({ ...form, inventory_qty: e.target.value })} className="w-full border rounded px-3 py-2" required />
       <input type="number" placeholder="Daily discount budget" value={form.daily_discount_budget} onChange={(e) => setForm({ ...form, daily_discount_budget: e.target.value })} className="w-full border rounded px-3 py-2" required />
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+        <input
+          type="checkbox"
+          checked={form.allow_bundles}
+          onChange={(e) => setForm({ ...form, allow_bundles: e.target.checked })}
+        />
+        Allow bundle offers (bulk discount for larger orders)
+      </label>
       <button type="submit" disabled={creating} className="w-full bg-amber-600 text-white rounded py-2 disabled:opacity-50">
         {creating ? 'Creating...' : 'Create Catalog Item'}
       </button>
