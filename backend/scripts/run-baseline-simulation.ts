@@ -5,7 +5,7 @@ import { pool } from '../src/db/pool';
 import { runNegotiation } from '../src/orchestrator/orchestrator';
 
 const SIMULATION_MERCHANT_ID = '11111111-1111-1111-1111-111111111111'; // existing seed merchant
-const N_BUYERS = 10;
+const N_BUYERS = 5;
 
 interface SimResult {
   buyerIndex: number;
@@ -13,7 +13,8 @@ interface SimResult {
   maxTotalSpend: number;
   fixedPriceClosed: boolean;
   fixedPriceMargin: number;
-  vakilClosed: boolean;
+  vakilNegotiated: boolean;       // negotiation converged
+  vakilActuallyClosed: boolean;   // real deal row exists
   vakilFinalPrice: number | null;
   vakilFinalQuantity: number | null;
   vakilMargin: number;
@@ -73,19 +74,24 @@ async function main() {
     );
     const session = sessionResult.rows[0];
 
-    const negotiationResult = await runNegotiation(session.id, catalogItem.id, mandate.id);
+    const negotiationResult = await runNegotiation(session.id, catalogItem.id, mandate.id,6);
     console.log(`  [debug] negotiationResult:`, negotiationResult);
 
     let vakilFinalPrice: number | null = null;
     let vakilFinalQuantity: number | null = null;
     let vakilMargin = 0;
+    let vakilActuallyClosed = false;
 
     if (negotiationResult.converged) {
-      const dealResult = await pool.query(`SELECT final_terms FROM deals WHERE session_id = $1`, [session.id]);
+      const dealResult = await pool.query(
+        `SELECT final_terms FROM deals WHERE session_id = $1`,
+        [session.id]
+      );
       if (dealResult.rows[0]) {
         vakilFinalPrice = Number(dealResult.rows[0].final_terms.unit_price);
         vakilFinalQuantity = Number(dealResult.rows[0].final_terms.quantity);
         vakilMargin = (vakilFinalPrice - floorPrice) * vakilFinalQuantity;
+        vakilActuallyClosed = true;
       }
     }
 
@@ -95,27 +101,42 @@ async function main() {
       maxTotalSpend,
       fixedPriceClosed,
       fixedPriceMargin,
-      vakilClosed: negotiationResult.converged,
+      vakilNegotiated: negotiationResult.converged,
+      vakilActuallyClosed,
       vakilFinalPrice,
       vakilFinalQuantity,
       vakilMargin,
       vakilTurns: negotiationResult.turnsUsed,
     });
 
-    console.log(`  → Fixed price: ${fixedPriceClosed ? 'CLOSED' : 'no deal'} | Vakil: ${negotiationResult.converged ? `CLOSED @ ${vakilFinalPrice}` : 'no deal'} (${negotiationResult.turnsUsed} turns)\n`);
+    const vakilStatus = vakilActuallyClosed
+      ? `CLOSED @ ${vakilFinalPrice}`
+      : negotiationResult.converged
+        ? 'NEGOTIATED but blocked (no deal row)'
+        : 'no deal';
+
+    console.log(
+      `  → Fixed price: ${fixedPriceClosed ? 'CLOSED' : 'no deal'} | Vakil: ${vakilStatus} (${negotiationResult.turnsUsed} turns)\n`
+    );
   }
 
   // --- Aggregate report ---
   const fixedClosedCount = results.filter((r) => r.fixedPriceClosed).length;
-  const vakilClosedCount = results.filter((r) => r.vakilClosed).length;
+  const vakilNegotiatedCount = results.filter((r) => r.vakilNegotiated).length;
+  const vakilActuallyClosedCount = results.filter((r) => r.vakilActuallyClosed).length;
   const totalFixedMargin = results.reduce((sum, r) => sum + r.fixedPriceMargin, 0);
   const totalVakilMargin = results.reduce((sum, r) => sum + r.vakilMargin, 0);
 
+  const recoveredNegotiated = results.filter((r) => r.vakilNegotiated && !r.fixedPriceClosed).length;
+  const recoveredActuallyClosed = results.filter((r) => r.vakilActuallyClosed && !r.fixedPriceClosed).length;
+
   console.log('\n========== SIMULATION RESULTS ==========');
   console.log(`Buyers simulated: ${N_BUYERS}`);
-  console.log(`\nFixed Price:  ${fixedClosedCount}/${N_BUYERS} closed (${((fixedClosedCount / N_BUYERS) * 100).toFixed(0)}%) | Total margin: ₹${totalFixedMargin}`);
-  console.log(`Vakil:        ${vakilClosedCount}/${N_BUYERS} closed (${((vakilClosedCount / N_BUYERS) * 100).toFixed(0)}%) | Total margin: ₹${totalVakilMargin}`);
-  console.log(`\nDeals Vakil recovered that fixed price would have lost: ${results.filter((r) => r.vakilClosed && !r.fixedPriceClosed).length}`);
+  console.log(`\nFixed Price:              ${fixedClosedCount}/${N_BUYERS} closed (${((fixedClosedCount / N_BUYERS) * 100).toFixed(0)}%) | Total margin: ₹${totalFixedMargin}`);
+  console.log(`Vakil (negotiated):       ${vakilNegotiatedCount}/${N_BUYERS} converged (${((vakilNegotiatedCount / N_BUYERS) * 100).toFixed(0)}%)`);
+  console.log(`Vakil (actually closed):  ${vakilActuallyClosedCount}/${N_BUYERS} real deals (${((vakilActuallyClosedCount / N_BUYERS) * 100).toFixed(0)}%) | Total margin: ₹${totalVakilMargin}`);
+  console.log(`\nRecovered (negotiation only): ${recoveredNegotiated}`);
+  console.log(`Recovered (real deal):        ${recoveredActuallyClosed}`);
   console.log('=========================================\n');
 
   console.log('Per-buyer detail:');
@@ -124,8 +145,10 @@ async function main() {
       Buyer: r.buyerIndex,
       MaxUnitPrice: r.maxUnitPrice,
       FixedPrice: r.fixedPriceClosed ? 'Closed' : 'Lost',
-      Vakil: r.vakilClosed ? `Closed @ ${r.vakilFinalPrice}` : 'Lost',
+      VakilNegotiated: r.vakilNegotiated ? 'Yes' : 'No',
+      VakilClosed: r.vakilActuallyClosed ? `Closed @ ${r.vakilFinalPrice}` : 'No',
       VakilTurns: r.vakilTurns,
+      Margin: r.vakilMargin,
     }))
   );
 

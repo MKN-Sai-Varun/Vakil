@@ -6,8 +6,7 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "simulate": "ts-node scripts/run-baseline-simulation.ts",
-    "simulate_2": "ts-node scripts/run-baseline-simulation-2.ts"
+    "simulate": "ts-node scripts/run-baseline-simulation.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",
