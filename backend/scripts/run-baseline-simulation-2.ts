@@ -5,7 +5,7 @@ import { pool } from '../src/db/pool';
 import { runNegotiation } from '../src/orchestrator/orchestrator';
 
 const SIMULATION_MERCHANT_ID = '11111111-1111-1111-1111-111111111111'; // existing seed merchant
-const N_BUYERS = 10;
+const N_BUYERS = 5;
 
 interface SimResult {
   buyerIndex: number;
