@@ -1,9 +1,9 @@
-# Vakil — Bounded AI-to-AI Negotiation Commerce
+# Vakil - Bounded AI-to-AI Negotiation Commerce
 
 **Razorpay Buildathon · Track 01: AI Growth & Agentic Commerce**
 
 Vakil lets a merchant safely negotiate and transact with autonomous AI
-buyer agents — bounded by a policy it can never break, proven by an audit
+buyer agents - bounded by a policy it can never break, proven by an audit
 trail it can never fake.
 
 **Live demo:** https://frontend-xi-olive-aayy0wfm3b.vercel.app
@@ -15,20 +15,20 @@ trail it can never fake.
 
 ## What it is
 
-Two autonomous AI agents — a **Buyer Vakil** and a **Merchant Vakil** —
+Two autonomous AI agents - a **Buyer Vakil** and a **Merchant Vakil** -
 negotiate price, quantity, and bundles across multiple turns, entirely on
 their own. Every proposed move is independently checked against a
 deterministic policy gate before it's ever emitted or acted on. Only a
 deal that clears both gates is sent to Razorpay for settlement. Every
 turn is logged to an append-only ledger that produces a **Proof of Fair
-Deal** — a structured explanation of what was rejected, what was
+Deal** - a structured explanation of what was rejected, what was
 accepted, and why.
 
 ## Why it's different
 
 Most AI-commerce demos are a chatbot in front of a payment API. Vakil
 builds the AI buyer as a genuine, autonomous counterpart with its own
-incentives — not a proxy for a human clicking through a form. The core
+incentives - not a proxy for a human clicking through a form. The core
 architectural principle, applied on both sides:
 
 **Propose (LLM) → Constrain (clamp to legal moves) → Verify (deterministic gate) → Emit**
@@ -36,7 +36,7 @@ architectural principle, applied on both sides:
 The LLM never decides what's legal. It only decides *which* legal move to
 make. A merchant can never sell below floor. A buyer can never exceed its
 mandate. These are structural guarantees, provable via the gate code and
-its tests — not assertions based on careful prompting.
+its tests - not assertions based on careful prompting.
 
 ## Architecture
 Buyer Vakil (LLM → clamp → mandateGate) ⇄ Orchestrator ⇄ Merchant Vakil (LLM → clamp → policyGate)
@@ -63,8 +63,8 @@ Full detail in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 | Frontend | React + Vite + Tailwind CSS v4 |
 | Backend | Node.js + Express + TypeScript |
 | Database | PostgreSQL (Neon) |
-| AI | Groq (`openai/gpt-oss-120b`) — chosen for zero-cost inference and low latency |
-| Payments | Razorpay (test mode) — Orders API + Webhooks |
+| AI | Groq (`openai/gpt-oss-120b`) - chosen for zero-cost inference and low latency |
+| Payments | Razorpay (test mode) - Orders API + Webhooks |
 | Hosting | Vercel (frontend) · Render (backend) · Neon (database) |
 
 ## Running locally
@@ -138,16 +138,16 @@ methodology notes.
   re-verifies regardless of what the LLM outputs.
 - **Fallback moves are constraint-aware.** If a Groq call fails or
   returns invalid JSON, the fallback logic clamps to the agent's own
-  limits rather than blindly echoing the other side's last offer — a real
+  limits rather than blindly echoing the other side's last offer - a real
   bug found and fixed during testing (see `docs/RELIABILITY.md`).
 - **Settlement is idempotent on `session_id`**, since Razorpay's Orders
   API has no native idempotency key. A retried execution never creates a
-  duplicate order — verified via deliberate retest and confirmed across
+  duplicate order - verified via deliberate retest and confirmed across
   all sessions run during development.
 - **Convergence is re-validated against the buyer's mandate** even after
   a merchant-side gate adjustment, closing a subtle bug where a
   gate-modified price could otherwise bypass the buyer's own cap.
-- **Bundle offers are deterministic**, not LLM-discretionary — the LLM
+- **Bundle offers are deterministic**, not LLM-discretionary - the LLM
   proposed bundles unreliably across multiple prompt-tuning attempts, so
   the trigger condition and terms are computed in code, with the LLM only
   narrating the rationale.
@@ -160,8 +160,8 @@ assistant layered on top for its own sake.
 
 ## Documentation
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — full system design
-- [`docs/RELIABILITY.md`](docs/RELIABILITY.md) — documented failure
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - full system design
+- [`docs/RELIABILITY.md`](docs/RELIABILITY.md) - documented failure
   scenarios, real bugs found and fixed, security checks
 - [`docs/RAZORPAY_CAPABILITY_MATRIX.md`](docs/RAZORPAY_CAPABILITY_MATRIX.md)
-  — Razorpay API capabilities verified against live docs
+  - Razorpay API capabilities verified against live docs
