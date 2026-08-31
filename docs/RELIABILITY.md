@@ -1,4 +1,4 @@
-# Vakil — Reliability Report
+# Vakil - Reliability Report
 
 This document records concrete, reproduced instances of Vakil's three core
 failure-handling guarantees, using real negotiation sessions run against
@@ -10,7 +10,7 @@ live Groq inference and (where applicable) live Razorpay test-mode APIs.
 mandate's `max_total_spend` or `max_unit_price`, regardless of what either
 agent's LLM proposes.
 
-**Evidence — hard block:**
+**Evidence - hard block:**
 Buyer mandate: max_total_spend=500, max_unit_price=1000.
 Catalog floor price: 750.
 Result: buyer's only legally reachable price (750, at floor) still
@@ -19,7 +19,7 @@ blocked the deal with reason: *"Deal total 750 exceeds remaining mandate
 500, and quantity cannot be reduced further."* Session correctly marked
 `failed`, no settlement attempted.
 
-**Evidence — gate-driven quantity reduction (mandateGate.ts logic):**
+**Evidence - gate-driven quantity reduction (mandateGate.ts logic):**
 `checkMandate()` computes `maxAffordableQty = floor(remainingSpend / unit_price)`
 whenever a proposed total exceeds remaining spend, and returns an
 `adjusted` result with the reduced quantity rather than blocking outright,
@@ -27,19 +27,19 @@ provided at least 1 unit remains affordable. This path is implemented and
 unit-testable directly; in live testing, the buyer LLM frequently
 self-corrects its own quantity before ever triggering this path (see note
 below), so both the LLM's own constraint-awareness and the gate's
-independent enforcement act as two redundant layers — the gate is not
+independent enforcement act as two redundant layers - the gate is not
 "dead code," it is what makes the guarantee provable regardless of
 whether the LLM behaves correctly on a given run.
 
 **Note on redundant safety layers:** across dozens of live test runs, the
 buyer agent's own arithmetic reliably avoided proposing over-mandate
 deals. This is a positive finding about the LLM's reliability, not a sign
-the gate is unnecessary — the gate exists specifically for the cases where
+the gate is unnecessary - the gate exists specifically for the cases where
 LLM self-correction fails (see the ₹500 mandate case above, and the
 fallback-path cases below), and its correctness does not depend on the
 LLM behaving well.
 
-**Evidence — mandate re-validation after merchant-side price adjustment:**
+**Evidence - mandate re-validation after merchant-side price adjustment:**
 A separate, subtler case was found and fixed during testing: a merchant's
 price adjustment (clamped by the discount-budget gate) was not re-validated
 against the buyer's mandate before being treated as converged, allowing a
@@ -54,16 +54,16 @@ actually available.
 
 **Evidence:** Catalog item with inventory_qty=2. Buyer proposed 40 units.
 Merchant's LLM agreed to accept (unaware of the real inventory count, since
-inventory is deliberately not exposed to the LLM's context — enforcement is
+inventory is deliberately not exposed to the LLM's context - enforcement is
 the gate's job, not the LLM's). `policyGate.ts` blocked with reason:
-*"Requested quantity 40 exceeds available inventory 2 — the agent's stated
+*"Requested quantity 40 exceeds available inventory 2 - the agent's stated
 'accept' could not be honored."* The logged move type was corrected from
 the LLM's stated "accept" to "reject" so the audit trail does not show a
 contradictory outcome. Session correctly marked `failed`.
 
 **Dual final re-check:** `executeDeal()` re-reads inventory fresh from the
 database immediately before calling Razorpay, independent of whatever the
-negotiation assumed — protecting against inventory changing between
+negotiation assumed - protecting against inventory changing between
 convergence and settlement (a genuine race condition, not just a
 same-turn quantity error).
 
@@ -73,17 +73,17 @@ same-turn quantity error).
 request, re-run session) never creates a second Razorpay order for the
 same negotiation.
 
-**Evidence — deliberate test:** The same converged session was executed
+**Evidence - deliberate test:** The same converged session was executed
 twice via `/sessions/:id/run`. First call created a real order
 (`order_TVpurTqVO3MMKl`). Second call's `executeDeal()` found an existing
 `deals` row via `getDealBySession(session_id)` and returned it directly
 (`alreadyExists: true`) without calling Razorpay again.
 
-**Evidence — aggregate check across all testing this week:**
+**Evidence - aggregate check across all testing this week:**
 ```sql
 SELECT session_id, COUNT(*) FROM deals GROUP BY session_id HAVING COUNT(*) > 1;
 ```
-Returns zero rows — across every negotiation run during development
+Returns zero rows - across every negotiation run during development
 (several dozen sessions), not one session ever produced two deals.
 
 ## 4. Fallback safety (found during testing, not originally planned)
@@ -93,7 +93,7 @@ returns invalid JSON) echoed the other party's last offer verbatim,
 including prices that violated the fallback agent's own constraints
 (e.g., the buyer's fallback proposing a price above its own mandate cap).
 
-**Fix:** Fallback moves are now constraint-aware — the buyer's fallback
+**Fix:** Fallback moves are now constraint-aware - the buyer's fallback
 clamps to its own `max_unit_price` and walks away if even that ceiling
 can't afford the deal; the merchant's fallback clamps to its own floor.
 This closed a real gap where a *safety mechanism* could itself produce an
@@ -115,10 +115,10 @@ live test: session correctly stopped at exactly 10 turns and marked
 ## Security checks
 
 - Webhook signature verification uses HMAC-SHA256 over the raw request
-  body, tested against a deliberately invalid signature — correctly
+  body, tested against a deliberately invalid signature - correctly
   rejected with 400 and no processing performed.
 - No card, UPI, or payment credential data is stored in the `deals` table
-  or anywhere else in the schema — only Razorpay's own order ID and
+  or anywhere else in the schema - only Razorpay's own order ID and
   negotiated terms are retained.
 - `.env` (containing Groq and Razorpay keys) is gitignored and confirmed
   absent from every commit throughout development.
