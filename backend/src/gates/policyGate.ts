@@ -22,7 +22,7 @@ export function checkPolicy(
   policy: CatalogItemPolicy
 ): PolicyResult {
   if (move.quantity > policy.inventory_qty) {
-    return { result: 'blocked', reason: `Requested quantity ${move.quantity} exceeds available inventory ${policy.inventory_qty} — the agent's stated "${move.type}" could not be honored`};
+    return { result: 'blocked', reason: `Requested quantity ${move.quantity} exceeds available inventory ${policy.inventory_qty}. The agent's stated "${move.type}" could not be honored.`};
   }
 
   if (move.unit_price === null) {
@@ -38,13 +38,13 @@ export function checkPolicy(
       return {
         result: 'adjusted',
         adjustedPrice: policy.floor_price,
-        reason: `Proposed price ${move.unit_price} below floor ${policy.floor_price} — clamped to floor`,
+        reason: `Proposed price ${move.unit_price} is below floor ${policy.floor_price}. Clamped to floor.`,
       };
     }
     return {
       result: 'adjusted',
       adjustedPrice: policy.floor_price,
-      reason: `Proposed price ${move.unit_price} below floor ${policy.floor_price} — clamped to floor`,
+      reason: `Proposed price ${move.unit_price} is below floor ${policy.floor_price}. Clamped to floor.`,
     };
   }
 
@@ -56,7 +56,7 @@ export function checkPolicy(
     return {
       result: 'adjusted',
       adjustedPrice: clampedPrice,
-      reason: `Discount would exceed remaining daily budget (${remainingBudget}) — clamped to ${clampedPrice}`,
+      reason: `Discount would exceed remaining daily budget (${remainingBudget}). Clamped to ${clampedPrice}.`,
     };
   }
 

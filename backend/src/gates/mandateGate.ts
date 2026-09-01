@@ -32,7 +32,7 @@ export function checkMandate(
   }
 
   if (move.unit_price !== null && move.unit_price > mandate.max_unit_price) {
-    return { result: 'blocked', reason: `Unit price ${move.unit_price} exceeds mandate cap ${mandate.max_unit_price}` };
+    return { result: 'blocked', reason: `Unit price ${move.unit_price} exceeds mandate cap ${mandate.max_unit_price}.` };
   }
 
   const remainingSpend = mandate.max_total_spend - mandate.spend_used;
@@ -43,11 +43,11 @@ export function checkMandate(
         return {
           result: 'adjusted',
           adjustedQuantity: maxAffordableQty,
-          reason: `Total ${move.total} exceeds remaining mandate ${remainingSpend} — reduced quantity to ${maxAffordableQty}`,
+          reason: `Total ${move.total} exceeds remaining mandate ${remainingSpend}. Reduced quantity to ${maxAffordableQty}.`,
         };
       }
     }
-    return { result: 'blocked', reason: `Deal total ${move.total} exceeds remaining mandate ${remainingSpend}, and quantity cannot be reduced further` };
+    return { result: 'blocked', reason: `Deal total ${move.total} exceeds remaining mandate ${remainingSpend} and quantity cannot be reduced further.` };
   }
 
   return { result: 'pass' };

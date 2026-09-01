@@ -122,3 +122,44 @@ live test: session correctly stopped at exactly 10 turns and marked
   negotiated terms are retained.
 - `.env` (containing Groq and Razorpay keys) is gitignored and confirmed
   absent from every commit throughout development.
+
+## 6. Webhook confirmation and payment loop closure
+
+**Guarantee:** A converged deal is not considered settled until Razorpay
+confirms payment capture via webhook. The ledger reflects the real payment
+state, not just the order creation state.
+
+**Implementation:** `payment.captured` (and `order.paid`) events are received
+at `/webhooks/razorpay`. The handler:
+1. Verifies the `X-Razorpay-Signature` header (HMAC-SHA256 over the raw
+   request body, keyed with `RAZORPAY_WEBHOOK_SECRET`). An invalid signature
+   returns 400 and no processing occurs.
+2. Deduplicates on `X-Razorpay-Event-Id` (in-memory set; survives restarts
+   as long as Razorpay's retry window is shorter than the uptime cycle).
+3. Calls `markDealSettled(order_id)` which sets `status = 'settled'` and
+   records a `webhook_confirmed_at` timestamp.
+4. Writes a `webhook_confirmed` audit event tied to the deal.
+
+**Tested via:** `scripts/test-webhook.ts` — generates a valid HMAC-signed
+`payment.captured` payload for any order ID and prints the curl command to
+fire it. Confirmed: deal status transitions from `pending` to `settled`,
+`webhook_confirmed_at` is populated, and the Proof of Fair Deal card in the
+ledger reflects the settled state.
+
+**Deliberately invalid signature test:** a manually corrupted signature was
+submitted — the handler returned 400 and the deal row was not modified.
+
+## 7. Currency integrity
+
+**Guarantee:** All negotiated prices, rationale text, and audit records
+are denominated in INR (₹). No dollar or foreign-currency amounts can
+appear in agent output.
+
+**Implementation:** Both `buyerSystemPrompt()` and `merchantSystemPrompt()`
+explicitly declare `"All prices are in Indian Rupees (INR, ₹). Never mention
+dollars or any other currency."` and prefix all injected numeric values with
+`₹` (e.g. `"Your floor price is ₹750"`). This constrains the LLM's option
+space rather than relying on post-hoc filtering.
+
+**Observed outcome:** across all sessions run after this change, no agent
+rationale contained dollar signs or non-INR currency references.

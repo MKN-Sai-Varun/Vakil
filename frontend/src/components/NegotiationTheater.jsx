@@ -1,42 +1,52 @@
 import { useState, useRef, useEffect } from 'react';
 import { createSession, runNegotiation, getSession } from '../api/sessions';
 
-const ACTOR_STYLES = {
-  buyer: 'bg-blue-50 border-blue-300 text-blue-900',
-  merchant: 'bg-amber-50 border-amber-300 text-amber-900',
+const ACTOR_LABEL = { buyer: 'Buyer Vakil', merchant: 'Merchant Vakil' };
+const ACTOR_COLOR = { buyer: 'var(--accent)', merchant: 'var(--ochre)' };
+
+const RESULT_STYLE = {
+  pass: { color: 'var(--moss)', label: 'passed' },
+  adjusted: { color: 'var(--ochre)', label: 'adjusted' },
+  blocked: { color: 'var(--rust)', label: 'blocked' },
 };
 
-const RESULT_BADGE = {
-  pass: 'bg-green-100 text-green-800',
-  adjusted: 'bg-yellow-100 text-yellow-800',
-  blocked: 'bg-red-100 text-red-800',
-};
-
+const MAX_TURNS = 10;
 const POLL_INTERVAL_MS = 1200;
 
-export default function NegotiationTheater({ mandateId, catalogItemId }) {
+// Strip em-dashes from gate reason strings
+function cleanReason(str) {
+  if (!str) return '';
+  return str.replace(/\s*—\s*/g, ': ').replace(/\s*–\s*/g, ': ');
+}
+
+export default function NegotiationTheater({ mandateId, catalogItemId, mandate, onChangeItem, onNewNegotiation }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [thinkingActor, setThinkingActor] = useState(null);
+  const [dealInfo, setDealInfo] = useState(null); // { razorpay_order_id, final_terms }
   const pollRef = useRef(null);
 
   const isFinished = session && (session.status === 'converged' || session.status === 'failed');
+  const isActive = session && !isFinished;
+  const turnCount = session?.turns?.length ?? 0;
+  const roundCount = Math.ceil(turnCount / 2);
 
   useEffect(() => {
-    return () => clearInterval(pollRef.current); // cleanup on unmount
+    return () => clearInterval(pollRef.current);
   }, []);
 
   async function handleStart() {
-    if(loading) return;
+    if (loading) return;
     setError(null);
     setLoading(true);
-    setThinkingActor('buyer'); // buyer always moves first
+    setDealInfo(null);
+    setThinkingActor('buyer');
 
     try {
       const newSession = await createSession(mandateId, catalogItemId);
       setSession(newSession);
-      await runNegotiation(newSession.id); // returns instantly now, negotiation runs in background
+      await runNegotiation(newSession.id);
 
       pollRef.current = setInterval(async () => {
         try {
@@ -55,14 +65,18 @@ export default function NegotiationTheater({ mandateId, catalogItemId }) {
 
           if (isDone) {
             clearInterval(pollRef.current);
-            setThinkingActor(null); // always clear, regardless of turn-count logic above
+            setThinkingActor(null);
             setLoading(false);
+            // Surface deal info immediately after convergence
+            if (updated.status === 'converged' && updated.deal) {
+              setDealInfo(updated.deal);
+            }
           }
-        } catch (err) {
+        } catch {
           clearInterval(pollRef.current);
           setLoading(false);
           setThinkingActor(null);
-          setError('Lost connection while polling for updates.');
+          setError('Lost connection while checking for updates.');
         }
       }, POLL_INTERVAL_MS);
     } catch (err) {
@@ -76,137 +90,201 @@ export default function NegotiationTheater({ mandateId, catalogItemId }) {
     setSession(null);
     setError(null);
     setThinkingActor(null);
+    setDealInfo(null);
+    if (onNewNegotiation) onNewNegotiation();
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
-      <div className="mb-3 p-2 bg-gray-100 rounded text-xs text-gray-500 font-mono">
-        Mandate: {mandateId} · Catalog Item: {catalogItemId}
-      </div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold text-gray-800">Negotiation Theater</h2>
+    <div className="max-w-2xl mx-auto px-6">
 
-        {!session && (
-          <button
-            onClick={handleStart}
-            disabled={loading}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50 hover:bg-indigo-700"
-          >
-            {loading ? 'Negotiating...' : 'Start Negotiation'}
-          </button>
-        )}
+      {/* Mandate summary banner */}
+      {mandate && (
+        <div
+          className="mb-6 px-4 py-3 rounded flex items-center justify-between text-sm"
+          style={{ background: 'var(--paper-raised)', border: '1px solid var(--rule)' }}
+        >
+          <span style={{ color: 'var(--ink-soft)' }}>Your mandate</span>
+          <span className="font-mono-data" style={{ color: 'var(--ink)' }}>
+            ₹{mandate.max_unit_price}/unit · ₹{mandate.max_total_spend} total
+          </span>
+        </div>
+      )}
 
-        {isFinished && (
-          <button
-            onClick={handleReset}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800"
-          >
-            Start New Negotiation
-          </button>
-        )}
+      {/* Header row */}
+      <div className="flex items-baseline justify-between mb-6">
+        <div className="flex items-baseline gap-3">
+          <h2 className="font-display text-xl" style={{ color: 'var(--ink)' }}>
+            Negotiation
+          </h2>
+          {/* Turn counter — shown once negotiation is running */}
+          {session && (
+            <span className="text-xs font-mono-data" style={{ color: 'var(--ink-soft)' }}>
+              Turn {turnCount} / {MAX_TURNS}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Change item — only when not actively negotiating */}
+          {!isActive && !loading && onChangeItem && (
+            <button
+              onClick={onChangeItem}
+              className="text-sm"
+              style={{ color: 'var(--ink-soft)' }}
+            >
+              ← Change item
+            </button>
+          )}
+
+          {!session && (
+            <button
+              onClick={handleStart}
+              disabled={loading}
+              className="text-sm px-4 py-2 rounded disabled:opacity-50"
+              style={{ background: 'var(--accent)', color: 'var(--paper-raised)' }}
+            >
+              {loading ? 'Negotiating…' : 'Start negotiation'}
+            </button>
+          )}
+
+          {isFinished && (
+            <button
+              onClick={handleReset}
+              className="text-sm px-4 py-2 rounded"
+              style={{ border: '1px solid var(--rule)', color: 'var(--ink)' }}
+            >
+              New negotiation
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-300 text-red-800 rounded-lg">
+        <div
+          className="mb-4 p-3 rounded text-sm"
+          style={{ background: 'var(--rust-soft)', color: 'var(--rust)' }}
+        >
           {error}
         </div>
       )}
 
+      {/* Session status pill */}
       {session && (
-        <div className="mb-4">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500">Session: {session.id}</span>
-            <span
-              className={`px-2 py-1 rounded text-sm font-medium ${
-                session.status === 'converged'
-                  ? 'bg-green-100 text-green-800'
-                  : session.status === 'failed'
-                  ? 'bg-red-100 text-red-800'
-                  : 'bg-gray-100 text-gray-700'
-              }`}
-            >
-              {session.status}
-            </span>
-          </div>
-          {session.status === 'failed' && session.turns?.length > 0 && (
-            <p className="text-sm text-red-700 mt-2">
-              {session.turns[session.turns.length - 1].policy_result === 'blocked'
-                ? session.turns[session.turns.length - 1].reason
-                : session.turn_count >= 10
-                ? 'No agreement was reached within the maximum number of negotiation rounds.'
-                : 'The negotiation ended without an agreement.'}
-            </p>
-          )}
+        <div className="mb-5 flex items-center gap-3 text-sm" style={{ color: 'var(--ink-soft)' }}>
+          <span className="font-mono-data">{session.id.slice(0, 8)}</span>
+          <span
+            className="inline-flex items-center gap-1.5"
+            style={{
+              color: session.status === 'converged'
+                ? 'var(--moss)'
+                : session.status === 'failed'
+                ? 'var(--rust)'
+                : 'var(--ink-soft)',
+            }}
+          >
+            <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: 'currentColor' }} />
+            {session.status}
+          </span>
         </div>
       )}
 
-      <div className="space-y-3">
-        {session?.turns?.map((turn, i) => (
-          <div
-            key={turn.id}
-            className={`p-4 rounded-lg border ${ACTOR_STYLES[turn.actor]} animate-[fadeIn_0.3s_ease-in]`}
-            style={{ animationDelay: `${i * 0.05}s` }}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-semibold capitalize">{turn.actor} Vakil</span>
-              <span className={`text-xs px-2 py-0.5 rounded ${RESULT_BADGE[turn.policy_result]}`}>
-                {turn.policy_result}
-              </span>
-            </div>
-                        <div className="text-sm">
-              <strong>{turn.proposed_move.type}</strong>
-              {turn.proposed_move.unit_price != null && (
-                <> — ₹{turn.proposed_move.unit_price}/unit × {turn.proposed_move.quantity}</>
-              )}
-              {turn.proposed_move.bundle_items && turn.proposed_move.bundle_items.length > 0 && (
-                <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
-                  📦 Bundle offer
+      {/* Turn transcript */}
+      <div>
+        {session?.turns?.map((turn, i) => {
+          const move = typeof turn.proposed_move === 'string'
+            ? JSON.parse(turn.proposed_move)
+            : turn.proposed_move;
+          const result = RESULT_STYLE[turn.policy_result] || RESULT_STYLE.pass;
+          return (
+            <div
+              key={turn.id}
+              className="py-4"
+              style={{ borderTop: i === 0 ? 'none' : '1px solid var(--rule)' }}
+            >
+              <div className="flex items-baseline justify-between mb-1.5">
+                <span className="text-sm font-medium" style={{ color: ACTOR_COLOR[turn.actor] }}>
+                  {ACTOR_LABEL[turn.actor]}
                 </span>
+                <span className="text-xs" style={{ color: result.color }}>
+                  {result.label}
+                </span>
+              </div>
+
+              <div className="text-sm mb-1" style={{ color: 'var(--ink)' }}>
+                <span className="font-mono-data">{move.type}</span>
+                {move.unit_price != null && (
+                  <span className="font-mono-data" style={{ color: 'var(--ink-soft)' }}>
+                    {' '}· ₹{move.unit_price} × {move.quantity}
+                  </span>
+                )}
+                {move.bundle_items?.length > 0 && (
+                  <span
+                    className="ml-2 text-xs px-2 py-0.5 rounded"
+                    style={{ background: 'var(--ochre-soft)', color: 'var(--ochre)' }}
+                  >
+                    volume bundle
+                  </span>
+                )}
+              </div>
+
+              {move.rationale && (
+                <p className="text-sm mb-1" style={{ color: 'var(--ink-soft)' }}>
+                  {move.rationale}
+                </p>
+              )}
+
+              {turn.reason && (
+                <p className="text-xs" style={{ color: 'var(--ink-soft)', opacity: 0.75 }}>
+                  {cleanReason(turn.reason)}
+                </p>
               )}
             </div>
-            {turn.proposed_move.rationale && (
-              <p className="text-sm mt-1 italic opacity-80">"{turn.proposed_move.rationale}"</p>
-            )}
-            <p className="text-xs mt-1 opacity-60">{turn.reason}</p>
-          </div>
-        ))}
+          );
+        })}
 
-                {thinkingActor && (
-          <div className={`p-4 rounded-lg border ${ACTOR_STYLES[thinkingActor]} opacity-60`}>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold capitalize">{thinkingActor} Vakil</span>
-              <span className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce"></span>
-              </span>
-            </div>
+        {/* Thinking indicator */}
+        {thinkingActor && (
+          <div
+            className="py-4"
+            style={{ borderTop: session?.turns?.length ? '1px solid var(--rule)' : 'none' }}
+          >
+            <span className="text-sm" style={{ color: ACTOR_COLOR[thinkingActor] }}>
+              {ACTOR_LABEL[thinkingActor]} is considering its move…
+            </span>
           </div>
         )}
 
+        {/* Outcome card */}
         {isFinished && (
           <div
-            className={`p-4 rounded-lg border-2 border-dashed text-center ${
-              session.status === 'converged'
-                ? 'border-green-400 bg-green-50'
-                : 'border-gray-400 bg-gray-50'
-            }`}
+            className="mt-2 p-4 rounded"
+            style={{
+              borderTop: '1px solid var(--rule)',
+              background: session.status === 'converged' ? 'var(--moss-soft)' : 'var(--paper-raised)',
+            }}
           >
             {session.status === 'converged' ? (
               <>
-                <span className="text-2xl">🤝</span>
-                <p className="font-semibold text-green-800 mt-1">Deal reached</p>
+                <p className="text-sm font-medium mb-2" style={{ color: 'var(--moss)' }}>
+                  Deal reached.
+                </p>
+                {dealInfo && (
+                  <div className="space-y-1">
+                    <p className="text-sm font-mono-data" style={{ color: 'var(--ink)' }}>
+                      ₹{dealInfo.final_terms?.unit_price} × {dealInfo.final_terms?.quantity} = ₹{dealInfo.final_terms?.total}
+                    </p>
+                    <p className="text-xs font-mono-data" style={{ color: 'var(--ink-soft)' }}>
+                      Razorpay order: {dealInfo.razorpay_order_id}
+                    </p>
+                  </div>
+                )}
               </>
             ) : (
-              <>
-                <span className="text-2xl">⏱️</span>
-                <p className="font-semibold text-gray-700 mt-1">Negotiation ended without a deal</p>
-                <p className="text-sm text-gray-500 mt-1">
-                  {session.turns?.[session.turns.length - 1]?.policy_result === 'blocked'
-                    ? session.turns[session.turns.length - 1].reason
-                    : `Both sides negotiated in good faith for ${session.turn_count} rounds, but neither found terms they could agree to.`}
-                </p>
-              </>
+              <p className="text-sm" style={{ color: 'var(--ink-soft)' }}>
+                {session.turns?.[session.turns.length - 1]?.policy_result === 'blocked'
+                  ? cleanReason(session.turns[session.turns.length - 1].reason)
+                  : 'Both sides negotiated in good faith, but neither found terms they could agree to.'}
+              </p>
             )}
           </div>
         )}

@@ -127,8 +127,6 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
 
     // Deterministic override: force a bundle offer when conditions are met,
     // rather than relying on the LLM to choose this behavior reliably.
-        // Deterministic override: force a bundle offer when conditions are met,
-    // rather than relying on the LLM to choose this behavior reliably.
     const bundleEnabled = Array.isArray(catalogItem.bundle_rules) && catalogItem.bundle_rules.length > 0;
     const requestedQty = currentOffer?.quantity ?? 0;
     const pastTurnsForBundleCheck = await getTurns(sessionId);
@@ -196,61 +194,6 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
     const merchantUnitPrice: number | null = merchantFinalMove.unit_price;
     const merchantQuantity: number = merchantFinalMove.quantity;
 
-    //     if (merchantType === 'accept') {
-    //   // Re-validate: merchant's accepted price may have been gate-adjusted, so it must be
-    //   // re-checked against the buyer's mandate before we treat this as converged.
-    //   const finalCheck = checkMandate(
-    //     {
-    //       type: 'accept',
-    //       unit_price: merchantUnitPrice,
-    //       quantity: merchantQuantity,
-    //       total: (merchantUnitPrice ?? 0) * merchantQuantity,
-    //     },
-    //     {
-    //       max_total_spend: Number(mandate.max_total_spend),
-    //       spend_used: Number(mandate.spend_used),
-    //       max_unit_price: Number(mandate.max_unit_price),
-    //       category_allowlist: mandate.category_allowlist,
-    //       expires_at: mandate.expires_at,
-    //     }
-    //   );
-
-    //   if (finalCheck.result === 'blocked') {
-    //     await appendTurn(
-    //       sessionId,
-    //       'buyer',
-    //       { type: 'walk_away', unit_price: null, quantity: merchantQuantity, total: 0, rationale: 'This adjusted price is outside what we can accept.' },
-    //       'blocked',
-    //       finalCheck.reason
-    //     );
-    //     await updateSessionStatus(sessionId, 'failed');
-    //     return { converged: false, turnsUsed: turn, reason: finalCheck.reason };
-    //   }
-
-    //   converged = true;
-    //   console.log('[orchestrator] merchant accepted, currentOffer:', currentOffer);
-    //   if (currentOffer) {
-    //     const discountGiven = (Number(catalogItem.base_price) - currentOffer.unit_price) * currentOffer.quantity;
-    //     if (discountGiven > 0) await updateDiscountUsed(catalogItemId, discountGiven);
-    //     await updateMandateSpend(mandateId, currentOffer.unit_price * currentOffer.quantity);
-    //     try {
-    //       const execResult = await executeDeal(sessionId, catalogItemId, mandateId, {
-    //         unit_price: currentOffer.unit_price,
-    //         quantity: currentOffer.quantity,
-    //         total: currentOffer.unit_price * currentOffer.quantity,
-    //       });
-    //       console.log('[orchestrator] executeDeal result:', execResult);
-    //       if (!execResult.blocked) {
-    //         // already updated above; kept structure consistent with existing pattern
-    //       }
-    //     } catch (err) {
-    //       console.error('[orchestrator] executeDeal threw an error:', err);
-    //     }
-    //   } else {
-    //     console.log('[orchestrator] currentOffer was null, executeDeal NOT called');
-    //   }
-    //   break;
-    // }
     if (merchantType === 'accept') {
   // Re-validate against buyer's mandate (this part is fine)
   const finalCheck = checkMandate(
@@ -315,7 +258,7 @@ export async function runNegotiation(sessionId: string, catalogItemId: string, m
 
     const prevMerchantOfferPrice: number = currentOffer ? currentOffer.unit_price : 0;
     currentOffer = { unit_price: merchantUnitPrice ?? prevMerchantOfferPrice, quantity: merchantQuantity };
-  } // <-- closes the while loop
+  }
 
   await updateSessionStatus(sessionId, converged ? 'converged' : 'failed');
 

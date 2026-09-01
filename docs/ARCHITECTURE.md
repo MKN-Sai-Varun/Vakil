@@ -70,14 +70,52 @@ prompt never includes a price below floor as something it could offer.
 This is deliberate: constraining the *option space* the LLM reasons over is
 a second layer of safety on top of the post-hoc gate check.
 
+## 3. Auth and Role Model
+
+Every API route requires a valid JWT. Accounts have one of two roles: `buyer`
+or `merchant`. The role is encoded in the token at signup and enforced by
+`requireAuth` middleware on every protected route.
+
+- A **buyer** account can create mandates, browse catalog items, and start
+  negotiation sessions.
+- A **merchant** account has a linked `merchants` row and can create catalog
+  items. The merchant's identity is resolved server-side via the token's
+  `userId` — the client never sends a `merchant_id` that could be spoofed.
+
+Passwords are bcrypt-hashed (cost factor 12). The login route returns
+identical errors for "no such user" and "wrong password" to avoid leaking
+account existence.
+
+## 4. UI Architecture
+
+The frontend is role-aware — buyer and merchant users see entirely different
+flows from the same codebase, controlled by a `view` state machine in
+`App.jsx`.
+
+**Buyer flow:** mandate editor → catalog picker → negotiation theater.
+Back navigation exists at every step. A read-only catalog browser is
+accessible via the nav at all times. The mandate summary (max unit price,
+total budget) is displayed in both the catalog picker and the theater so
+constraints are always visible.
+
+**Merchant flow:** defaults to an inventory dashboard showing all listed
+items with per-item stats (list price, floor, stock, bundle rules) and
+expandable session history with deal counts and revenue. "List new item"
+navigates to the catalog editor and returns to the dashboard on completion.
+
+**Proof of Fair Deal card:** the ledger detail view synthesises the turn log
+into a plain-language verdict — rounds taken, gate adjustments made, blocked
+reason if any, final terms, and the Razorpay order ID — readable at a glance.
+
 ## 5. Data Model
 
-Seven tables, PostgreSQL, relational integrity enforced at the DB layer
+Seven core tables plus users, PostgreSQL, relational integrity enforced at the DB layer
 (not just in application code) wherever a bound matters:
 
 | Table | Purpose | Key constraints |
 |---|---|---|
-| `merchants` | Seller identity | - |
+| `users` | Auth identities (buyer or merchant role) | `UNIQUE(email)` |
+| `merchants` | Seller identity, linked to user | `user_id REFERENCES users` |
 | `catalog_items` | Inventory + negotiation corridor | `floor_price <= base_price` |
 | `mandates` | Buyer's delegated purchasing authority | `spend_used <= max_total_spend` |
 | `negotiation_sessions` | One negotiation between one buyer mandate and one catalog item | `status IN (active, converged, failed, expired)` |
@@ -223,22 +261,22 @@ on hoping the retry logic behaved correctly.
 
 | Layer | Choice | Why |
 |---|---|---|
-| Frontend | React + Vite + Tailwind | Negotiation Theater is the centerpiece; everything else stays minimal. |
+| Frontend | React + Vite + Tailwind CSS v4 | Negotiation Theater is the centerpiece; everything else stays minimal. |
 | Backend | Node.js + Express + TypeScript | One deployable service for agents + orchestrator + executor keeps moving parts low for a 9-day build. TypeScript + Zod gives compile-time types inferred directly from runtime-validated schemas. |
-| Database | PostgreSQL | Relational integrity matters - turns, sessions, deals, and audit events all reference each other and have real invariants (a turn belongs to exactly one session, a mandate can't overspend). |
+| Auth | JWT (jsonwebtoken + bcryptjs) | Stateless, no session store needed. Buyer and merchant roles enforced at the route level via `requireAuth` middleware. |
+| Database | PostgreSQL (Neon) | Relational integrity matters - turns, sessions, deals, and audit events all reference each other and have real invariants (a turn belongs to exactly one session, a mandate can't overspend). |
 | AI | Groq (`openai/gpt-oss-120b`) | Free tier, low latency, sufficient for narrow structured-output decisions; paired with strict schema validation and deterministic fallback. |
 | Payments | Razorpay (test mode) | Orders API + Webhooks, verified against live docs before building against them. |
-| Queue | None | Negotiation is synchronous turn-taking within a single session - no background job system needed. |
+| Hosting | Vercel (frontend) · Render (backend) · Neon (database) |
 
-## 12. Explicit Non-Goals (Do Not Build)
+## 12. Explicit Non-Goals
 
 Full AP2/ACP protocol compliance, real cryptographic mandate signing/PKI,
 multi-currency support, voice interfaces, a general-purpose chat assistant
 layered on top for its own sake.
 
-## 13. Stretch (Only If Core Is Stable)
+## 13. Stretch (explicitly out of scope for submission)
 
-Multiple concurrent Buyer Vakils competing for limited inventory -
+Multiple concurrent Buyer Vakils competing for limited inventory —
 effectively a reverse-auction dynamic on top of the same policy-gate and
-ledger infrastructure already built for bilateral negotiation. Explicitly
-scoped as non-core and not a blocker to the primary submission.
+ledger infrastructure already built for bilateral negotiation.
