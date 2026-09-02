@@ -243,7 +243,63 @@ existing order/link rather than creating a new one. This makes a retried
 execution (e.g. after a network timeout) provably safe rather than reliant
 on hoping the retry logic behaved correctly.
 
-## 10. Failure Handling (Demoed, Not Just Designed)
+## 10. User Interface & Experience
+
+### Public Landing Page
+- **Hero section** explaining bounded AI-to-AI commerce
+- **Value propositions:** Provably Bounded, Full Audit Trail, Real Settlement  
+- **How It Works** comparison: Buyer Vakil vs Merchant Vakil agents
+- **"Get Started" CTA** leads to role-based authentication
+
+### Role-Specific Home Pages
+
+**Buyer Home:**
+- Welcome message and quick action cards
+- "Start New Negotiation" → mandate editor
+- "Browse Catalog" → catalog browser
+- 4-step guide: Set Mandate → Agent Negotiates → Gate Verifies → Deal Settles
+- Feature highlights: Never Overspends, Smart Adjustment, Full Transparency
+
+**Merchant Home:**
+- Welcome message and quick action cards
+- "List New Item" → catalog editor  
+- "View Dashboard" → inventory and session overview
+- 5-step guide: Pricing Corridor → Budget → Negotiates → Gate Enforces → Revenue Captured
+- Feature highlights: Never Below Floor, Smart Bundles, Budget Control
+
+### Navigation & Header
+- **Top row:** Logo/branding left, user info + sign out right
+- **Nav row:** Home | Negotiate/Inventory | Catalog | Ledger
+- **Role-aware flows:** buyers see catalog browsing, merchants see dashboard
+- Clean hierarchy prevents users from getting lost mid-flow
+
+### Negotiation Theater (centerpiece)
+- **Real-time turn display** with agent avatars (buyer in blue, merchant in ochre)
+- Each turn shows: move type, price/quantity, rationale, gate result
+- **Turn counter** (Turn X/10) provides progress context
+- **"Change item" button** available until first turn executes
+- **Razorpay order ID** displayed prominently on convergence
+- **Proof of Fair Deal card** auto-generated from turn history
+
+### Merchant Dashboard
+- **Inventory table** with floor/list pricing, stock levels, discount usage
+- **Expandable session rows** showing negotiation status and key metrics
+- **Stats summary:** total items, active sessions, converged deals
+- **Quick actions:** List new item, view ledger
+
+### Ledger Views
+- **List view:** All negotiations with status indicators (converged/failed/active)
+- **Detail view:** Full turn-by-turn audit trail with collapsed/expandable turns
+- **Proof of Fair Deal section:** Shows both agents satisfied constraints
+- **Gate verification indicators:** visual pass/blocked/adjusted states
+
+### Design System
+- **Minimalist palette:** Ink (text), Paper (background), Accent (buyer), Ochre (merchant), Rust (errors), Moss (success)
+- **Typography:** Display font for headings, mono for data, sans-serif for body
+- **Tailwind CSS v4** with CSS variables for consistent theming
+- **Mobile-responsive** grid layouts
+
+## 11. Failure Handling (Demoed, Not Just Designed)
 
 1. **Buyer exceeds its own mandate** (primary demo failure) - Buyer
    proposes above `max_total_spend` → mandate gate blocks it → agent

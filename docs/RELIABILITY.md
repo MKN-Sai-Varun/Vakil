@@ -163,3 +163,63 @@ space rather than relying on post-hoc filtering.
 
 **Observed outcome:** across all sessions run after this change, no agent
 rationale contained dollar signs or non-INR currency references.
+
+## 8. UI/UX Polish for Demo Readiness
+
+**Issues found and fixed during final testing:**
+
+### Floor Price Validation
+- **Issue:** Catalog editor allowed floor > list price, leading to impossible
+  negotiation corridors (merchant can't sell above ceiling).
+- **Fix:** Client-side validation blocks submission if `floor_price > base_price`,
+  with clear error: "Floor price cannot exceed list price."
+
+### Login Redirect Loop
+- **Issue:** 401 interceptor redirected all failed requests to `/login`,
+  including the initial `/auth/login` POST itself, causing infinite flicker.
+- **Fix:** Axios interceptor now excludes `/auth/*` endpoints from redirect logic.
+
+### Em-Dash Cleanup
+- **Issue:** Gate rejection reasons contained literal em-dashes (`—`) which
+  rendered inconsistently across browsers and broke UI alignment.
+- **Fix:** Replaced all em-dashes in `policyGate.ts` and `mandateGate.ts`
+  with plain separators or semicolons.
+
+### Razorpay Order ID Display
+- **Issue:** Converged deals showed no order ID in the UI, making it hard to
+  verify Razorpay integration during demos.
+- **Fix:** NegotiationTheater now fetches and displays the Razorpay order ID
+  prominently on convergence.
+
+### Turn Counter Clarity
+- **Issue:** "Round 1/5" terminology confused users (negotiations have 10-turn
+  ceiling, not 5 rounds).
+- **Fix:** Changed to "Turn X/10" throughout UI and docs.
+
+### Merchant Default View
+- **Issue:** Merchant users landed on catalog editor with no context or navigation,
+  creating a dead-end experience.
+- **Fix:** Merchants now land on dashboard showing inventory + active sessions,
+  with clear navigation to list new items.
+
+### Proof of Fair Deal
+- **Issue:** No visual confirmation that both constraints were satisfied.
+- **Fix:** Added "Proof of Fair Deal" card showing buyer mandate limits and
+  merchant floor price, confirming final price/quantity satisfied both.
+
+### Change Item Guard
+- **Issue:** "Change item" button remained clickable mid-negotiation, causing
+  state corruption if user switched items after turns started.
+- **Fix:** Button now only appears before first turn executes, preventing
+  mid-negotiation item changes.
+
+### Home Pages
+- **Issue:** No landing page for unauthenticated users; logged-in users had
+  no dashboard/overview.
+- **Fix:** Created three-tier home page system:
+  - Public landing page (unauthenticated) explaining Vakil concept
+  - Buyer home page (post-login) with quick actions and how-it-works guide
+  - Merchant home page (post-login) with inventory/session quick access
+
+All fixes verified via manual testing and production build validation
+(`npx vite build` and `npx tsc --noEmit` both pass clean).
