@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { createSession, getSession, getTurns } from '../db/sessions';
 import { runNegotiation } from '../orchestrator/orchestrator';
+import { requireAuth } from '../auth/middleware';
 
 export const sessionsRouter = Router();
+
+sessionsRouter.use(requireAuth);
 
 sessionsRouter.post('/', async (req, res) => {
   const { mandate_id, catalog_item_id } = req.body;
@@ -17,8 +20,6 @@ sessionsRouter.post('/:id/run', async (req, res) => {
   const session = await getSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'not found' });
 
-  // Respond immediately — negotiation runs in the background.
-  // Frontend polls GET /sessions/:id to watch turns appear live.
   res.json({ status: 'started' });
 
   runNegotiation(req.params.id, session.catalog_item_id, session.buyer_mandate_id).catch((err) => {

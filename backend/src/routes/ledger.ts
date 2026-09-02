@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { pool } from '../db/pool';
+import { requireAuth } from '../auth/middleware';
 
 export const ledgerRouter = Router();
+
+ledgerRouter.use(requireAuth);
 
 ledgerRouter.get('/', async (req, res) => {
   const result = await pool.query(`
