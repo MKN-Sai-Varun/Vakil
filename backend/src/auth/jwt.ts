@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET as string;
+const JWT_SECRET =process.env.JWT_SECRET as string;
 
 export interface TokenPayload {
   userId: string;
