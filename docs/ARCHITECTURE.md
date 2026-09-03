@@ -344,6 +344,8 @@ ledger infrastructure already built for bilateral negotiation.
 
 ### High-Level System Overview
 
+![alt text](image.png)
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         VAKIL SYSTEM ARCHITECTURE                        │
