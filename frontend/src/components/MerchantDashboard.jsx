@@ -80,7 +80,7 @@ export default function MerchantDashboard({ onListNew }) {
         </button>
       </div>
 
-      {/* Summary stats — only show if there's activity */}
+      {/* Summary stats - only show if there's activity */}
       {totalSessions > 0 && (
         <div
           className="mb-6 px-4 py-3 rounded grid grid-cols-3 gap-4 text-center"
@@ -96,7 +96,7 @@ export default function MerchantDashboard({ onListNew }) {
           </div>
           <div>
             <div className="text-lg font-mono-data font-medium" style={{ color: 'var(--ink)' }}>
-              {totalRevenue > 0 ? `₹${totalRevenue.toLocaleString('en-IN')}` : '—'}
+              {totalRevenue > 0 ? `₹${totalRevenue.toLocaleString('en-IN')}` : '-'}
             </div>
             <div className="text-xs" style={{ color: 'var(--ink-soft)' }}>revenue</div>
           </div>

@@ -36,7 +36,7 @@ export async function proposeBuyerMove(ctx: BuyerContext): Promise<BuyerMove> {
 }
 
 function fallbackBuyerMove(ctx: BuyerContext): BuyerMove & { _fallback: true } {
-  // Never echo an offer that violates our own constraints — clamp to our actual ceiling
+  // Never echo an offer that violates our own constraints - clamp to our actual ceiling
   const quantity = ctx.currentOffer?.quantity ?? 1;
   const safeUnitPrice = Math.min(
     ctx.currentOffer?.unit_price ?? ctx.maxUnitPrice,

@@ -9,7 +9,7 @@ const processedEventIds = new Set<string>(); // simple in-memory dedupe for the 
 
 webhooksRouter.post(
   '/razorpay',
-  raw({ type: 'application/json' }), // critical: raw body, NOT express.json() — needed for signature verification
+  raw({ type: 'application/json' }), // critical: raw body, NOT express.json() - needed for signature verification
   async (req, res) => {
     const signature = req.headers['x-razorpay-signature'] as string;
     const eventId = req.headers['x-razorpay-event-id'] as string;

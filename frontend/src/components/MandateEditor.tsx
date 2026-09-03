@@ -50,12 +50,12 @@ export default function MandateEditor({ onCreated }: { onCreated: (id: string, m
           Set your mandate
         </h2>
         <p className="text-sm mb-6" style={{ color: 'var(--ink-soft)' }}>
-          This defines what your Buyer Vakil is authorised to spend on its own — without asking again.
+          This defines what your Buyer Vakil is authorised to spend on its own - without asking again.
           Not sure what to set? Check the{' '}
           <a
             href="#catalog"
             onClick={(e) => {
-              // Handled at App level via the Catalog nav tab — just a visual hint here
+              // Handled at App level via the Catalog nav tab - just a visual hint here
               e.preventDefault();
               const btn = document.querySelector<HTMLButtonElement>('[data-nav="catalog-browse"]');
               btn?.click();

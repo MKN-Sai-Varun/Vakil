@@ -58,7 +58,7 @@ export default function CatalogEditor({ merchantId, onCreated }) {
           Set the merchant's corridor
         </h2>
         <p className="text-sm mb-6" style={{ color: 'var(--ink-soft)' }}>
-          The Merchant Vakil can negotiate freely within these bounds — it can never sell below floor.
+          The Merchant Vakil can negotiate freely within these bounds - it can never sell below floor.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">

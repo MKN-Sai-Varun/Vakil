@@ -6,7 +6,7 @@ export default function MerchantHome({ onViewDashboard, onListItem }) {
           Welcome, Merchant
         </h2>
         <p className="text-base" style={{ color: 'var(--ink-soft)' }}>
-          Your AI agent handles negotiations automatically — set pricing corridors and let it maximize revenue within bounds.
+          Your AI agent handles negotiations automatically - set pricing corridors and let it maximize revenue within bounds.
         </p>
       </div>
 

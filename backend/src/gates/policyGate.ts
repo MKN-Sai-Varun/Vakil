@@ -34,7 +34,7 @@ export function checkPolicy(
     const remainingBudget = policy.daily_discount_budget - policy.discount_used_today;
 
     if (discountUsed <= remainingBudget && policy.floor_price <= policy.base_price) {
-      // Even within budget, floor is a hard line — never crossed regardless of budget
+      // Even within budget, floor is a hard line - never crossed regardless of budget
       return {
         result: 'adjusted',
         adjustedPrice: policy.floor_price,

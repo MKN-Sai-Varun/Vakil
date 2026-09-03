@@ -39,7 +39,7 @@ export default function LandingPage() {
           AI Agents That Negotiate, Bounded by Policy
         </h2>
         <p className="text-lg mb-12 max-w-2xl mx-auto" style={{ color: 'var(--ink-soft)' }}>
-          Two autonomous agents negotiate price, quantity, and bundles in real-time — each bounded by constraints they can never break. Every decision is explainable, every action is audited.
+          Two autonomous agents negotiate price, quantity, and bundles in real-time - each bounded by constraints they can never break. Every decision is explainable, every action is audited.
         </p>
 
         {/* Value Props Grid */}

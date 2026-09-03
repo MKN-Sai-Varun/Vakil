@@ -116,7 +116,7 @@ export default function NegotiationTheater({ mandateId, catalogItemId, mandate, 
           <h2 className="font-display text-xl" style={{ color: 'var(--ink)' }}>
             Negotiation
           </h2>
-          {/* Turn counter — shown once negotiation is running */}
+          {/* Turn counter - shown once negotiation is running */}
           {session && (
             <span className="text-xs font-mono-data" style={{ color: 'var(--ink-soft)' }}>
               Turn {turnCount} / {MAX_TURNS}
@@ -125,7 +125,7 @@ export default function NegotiationTheater({ mandateId, catalogItemId, mandate, 
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Change item — only when not actively negotiating */}
+          {/* Change item - only when not actively negotiating */}
           {!isActive && !loading && onChangeItem && (
             <button
               onClick={onChangeItem}

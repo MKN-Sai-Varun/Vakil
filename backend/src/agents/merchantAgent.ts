@@ -37,7 +37,7 @@ export async function proposeMerchantMove(ctx: MerchantContext): Promise<Merchan
 }
 
 function fallbackMerchantMove(ctx: MerchantContext): MerchantMove & { _fallback: true } {
-  // Never echo an offer that violates our own floor — clamp to our actual floor
+  // Never echo an offer that violates our own floor - clamp to our actual floor
   const quantity = ctx.currentOffer?.quantity ?? 1;
   const safeUnitPrice = Math.max(
     ctx.currentOffer?.unit_price ?? ctx.basePrice,

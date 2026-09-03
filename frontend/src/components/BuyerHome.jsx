@@ -6,7 +6,7 @@ export default function BuyerHome({ onStartNegotiation, onViewCatalog }) {
           Welcome, Buyer
         </h2>
         <p className="text-base" style={{ color: 'var(--ink-soft)' }}>
-          Your AI agent is ready to negotiate on your behalf — set constraints, pick an item, and let it work.
+          Your AI agent is ready to negotiate on your behalf - set constraints, pick an item, and let it work.
         </p>
       </div>
 

@@ -26,8 +26,8 @@ export async function runNegotiation(
 ) {
   const existingTurns = await getTurns(sessionId);
   if (existingTurns.length > 0) {
-    console.warn(`[orchestrator] runNegotiation called again for session ${sessionId} which already has ${existingTurns.length} turns — refusing to run concurrently.`);
-    return { converged: false, turnsUsed: 0, reason: 'Session already has turns in progress or completed — refusing duplicate execution.' };
+    console.warn(`[orchestrator] runNegotiation called again for session ${sessionId} which already has ${existingTurns.length} turns - refusing to run concurrently.`);
+    return { converged: false, turnsUsed: 0, reason: 'Session already has turns in progress or completed - refusing duplicate execution.' };
   }
 
   let turn = 0;
@@ -159,7 +159,7 @@ export async function runNegotiation(
         unit_price: bundleTerms.unit_price,
         bundle_items: [{ item_id: catalogItemId, quantity: bundleTerms.quantity }],
         quantity: bundleTerms.quantity,
-        rationale: `We can offer a better rate at higher volume — ${bundleTerms.quantity} units at ₹${bundleTerms.unit_price} per unit.`,
+        rationale: `We can offer a better rate at higher volume - ${bundleTerms.quantity} units at ₹${bundleTerms.unit_price} per unit.`,
       };
     }
 
@@ -191,7 +191,7 @@ export async function runNegotiation(
       merchantFinalMove = {
         ...merchantRaw,
         unit_price: policyCheck.adjustedPrice,
-        rationale: `Offering ₹${policyCheck.adjustedPrice} per unit — the best price available today given our current discount limits.`,
+        rationale: `Offering ₹${policyCheck.adjustedPrice} per unit - the best price available today given our current discount limits.`,
       };
     }
 
@@ -202,7 +202,7 @@ export async function runNegotiation(
     const merchantQuantity: number = merchantFinalMove.quantity;
 
     if (merchantType === 'accept') {
-      // Re-validate against buyer's mandate — the merchant's accepted price may have
+      // Re-validate against buyer's mandate - the merchant's accepted price may have
       // been gate-adjusted, so it must be re-checked before declaring convergence.
       const finalCheck = checkMandate(
         {
