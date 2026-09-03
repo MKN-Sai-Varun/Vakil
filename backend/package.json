@@ -6,7 +6,8 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "simulate": "ts-node scripts/run-baseline-simulation.ts"
+    "simulate": "ts-node scripts/run-baseline-simulation.ts",
+    "db:reset-all": "psql $DATABASE_URL -f ../database/reset-all.sql"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
