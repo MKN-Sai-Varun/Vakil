@@ -336,3 +336,967 @@ layered on top for its own sake.
 Multiple concurrent Buyer Vakils competing for limited inventory —
 effectively a reverse-auction dynamic on top of the same policy-gate and
 ledger infrastructure already built for bilateral negotiation.
+
+
+---
+
+## 14. System Architecture - Visual Flow
+
+### High-Level System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         VAKIL SYSTEM ARCHITECTURE                        │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────┐         ┌──────────────┐         ┌──────────────┐
+│   Frontend   │         │   Backend    │         │  PostgreSQL  │
+│   (React)    │ ◄─────► │  (Express)   │ ◄─────► │   (Neon)     │
+│              │  HTTPS  │              │   SQL   │              │
+│  Vite + TW   │         │  TypeScript  │         │  Relational  │
+└──────────────┘         └──────────────┘         └──────────────┘
+                                │
+                                │
+                    ┌───────────┴───────────┐
+                    │                       │
+                    ▼                       ▼
+            ┌──────────────┐       ┌──────────────┐
+            │   Groq API   │       │  Razorpay    │
+            │              │       │              │
+            │ Llama 3.3    │       │ Orders API + │
+            │ 70B LLM      │       │  Webhooks    │
+            └──────────────┘       └──────────────┘
+```
+
+---
+
+### Complete End-to-End Negotiation Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    BUYER NEGOTIATION WORKFLOW                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+[1] USER AUTHENTICATION
+    │
+    ├─► POST /auth/signup { email, password, role: 'buyer' }
+    │        │
+    │        └──► INSERT INTO users, Generate JWT token
+    │                  │
+    │                  └──► Response: { token, user }
+    │
+    └─► Frontend: Store token in localStorage
+             │
+             └──► Navigate to BuyerHome.jsx
+
+[2] CREATE MANDATE
+    │
+    ├─► MandateEditor.tsx
+    │        │
+    │        └──► POST /mandates
+    │                  Body: {
+    │                    max_total_spend: 5000,
+    │                    max_unit_price: 120
+    │                  }
+    │                       │
+    │                       └──► INSERT INTO mandates
+    │                                 │
+    │                                 └──► Response: { id: mandate_abc }
+    │
+    └─► Frontend: Store mandateId, navigate to catalog picker
+
+[3] BROWSE & SELECT ITEM
+    │
+    ├─► BuyerCatalogPicker.jsx
+    │        │
+    │        └──► GET /catalog-items
+    │                  │
+    │                  └──► SELECT * FROM catalog_items WHERE stock > 0
+    │                            │
+    │                            └──► Response: [
+    │                                   {
+    │                                     id: 'item_xyz',
+    │                                     item_name: 'Laptop',
+    │                                     base_price: 1500,
+    │                                     floor_price: 1000
+    │                                   }
+    │                                 ]
+    │
+    └─► User clicks "Negotiate" on an item
+
+[4] CREATE SESSION
+    │
+    ├─► NegotiationTheater.jsx (useEffect on mount)
+    │        │
+    │        └──► POST /sessions
+    │                  Body: {
+    │                    buyer_id,
+    │                    mandate_id: 'mandate_abc',
+    │                    catalog_item_id: 'item_xyz',
+    │                    initial_quantity: 10
+    │                  }
+    │                       │
+    │                       └──► INSERT INTO sessions (status: 'active')
+    │                                 │
+    │                                 └──► Response: {
+    │                                        id: 'session_123',
+    │                                        status: 'active'
+    │                                      }
+    │
+    └─► Frontend: Display "Start negotiation" button
+
+[5] RUN NEGOTIATION (THE CORE)
+    │
+    ├─► User clicks "Start negotiation"
+    │        │
+    │        └──► POST /sessions/session_123/run
+    │                  │
+    │                  └──► orchestrator.runNegotiation(session_123)
+    │                            │
+    │                            └──► [See detailed orchestrator flow below]
+    │
+    └─► Frontend: Poll GET /sessions/session_123/turns every 2 seconds
+
+[6] VIEW RESULTS
+    │
+    ├─► GET /sessions/session_123/deal
+    │        │
+    │        └──► SELECT * FROM deals WHERE session_id = 'session_123'
+    │                  │
+    │                  └──► Response: {
+    │                         razorpay_order_id: 'order_K7h3h4h5',
+    │                         final_unit_price: 1100,
+    │                         final_quantity: 10,
+    │                         status: 'pending'
+    │                       }
+    │
+    └─► Frontend: Display Razorpay order ID + Proof of Fair Deal card
+```
+
+---
+
+### Orchestrator - The Negotiation Engine
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                  ORCHESTRATOR: runNegotiation(session_id)                │
+│                         (Up to 10 turns max)                             │
+└─────────────────────────────────────────────────────────────────────────┘
+
+START
+  │
+  ├─► Load session data from database
+  │     - mandate (buyer constraints)
+  │     - catalog_item (merchant pricing corridor)
+  │     - initial_quantity
+  │
+  ├─► Initialize: turnCount = 0, currentOffer = null
+  │
+  └─► BEGIN TURN LOOP
+        │
+        ┌───────────────────────────────────────────────────┐
+        │              TURN N (N = 1 to 10)                 │
+        └───────────────────────────────────────────────────┘
+        │
+        ├─► [A] BUYER AGENT DECIDES
+        │     │
+        │     ├─► Context:
+        │     │     - mandate: { max_total_spend, max_unit_price }
+        │     │     - catalog_item: { base_price, item_name }
+        │     │     - merchant's last offer (if exists)
+        │     │     - turn history
+        │     │
+        │     ├─► groqClient.getBuyerMove(context)
+        │     │     │
+        │     │     └─► POST https://api.groq.com/openai/v1/chat/completions
+        │     │           Body: {
+        │     │             model: "llama-3.3-70b-versatile",
+        │     │             messages: [
+        │     │               {
+        │     │                 role: "system",
+        │     │                 content: "You are a buyer agent.
+        │     │                          Your mandate: max ₹5000 total, ₹120/unit max.
+        │     │                          Negotiate the best deal within bounds.
+        │     │                          Never exceed your mandate.
+        │     │                          All prices in INR (₹)."
+        │     │               },
+        │     │               {
+        │     │                 role: "user",
+        │     │                 content: "Merchant offered ₹110/unit for 10.
+        │     │                          Respond with JSON only."
+        │     │               }
+        │     │             ],
+        │     │             response_format: { type: "json_object" }
+        │     │           }
+        │     │                │
+        │     │                └─► Response: {
+        │     │                      choices: [{
+        │     │                        message: {
+        │     │                          content: '{
+        │     │                            "type": "counter",
+        │     │                            "unit_price": 105,
+        │     │                            "quantity": 10,
+        │     │                            "rationale": "Can go up to ₹105..."
+        │     │                          }'
+        │     │                        }
+        │     │                      }]
+        │     │                    }
+        │     │
+        │     ├─► Parse LLM response → buyerMove
+        │     │
+        │     ├─► mandateGate.checkMandate(buyerMove, mandate)
+        │     │     │
+        │     │     ├─► Check: unit_price <= max_unit_price?
+        │     │     │     - 105 <= 120? ✓ PASS
+        │     │     │
+        │     │     ├─► Check: unit_price * quantity <= max_total_spend?
+        │     │     │     - 105 * 10 = 1050 <= 5000? ✓ PASS
+        │     │     │
+        │     │     └─► If violation detected:
+        │     │           - Adjust quantity to fit budget
+        │     │           - Return: { result: 'adjusted', adjustedQuantity }
+        │     │
+        │     │     Result: { result: 'pass' }
+        │     │
+        │     ├─► INSERT INTO turns
+        │     │     (session_id, agent: 'buyer', move_type: 'counter',
+        │     │      unit_price: 105, quantity: 10,
+        │     │      rationale: "Can go up to ₹105...",
+        │     │      gate_result: 'pass')
+        │     │
+        │     ├─► INSERT INTO audit_events
+        │     │     (session_id, event_type: 'gate_checked',
+        │     │      details: { agent: 'buyer', result: 'pass' })
+        │     │
+        │     ├─► Update currentOffer = buyerMove
+        │     │
+        │     └─► Check convergence: buyerMove.type == 'accept'?
+        │           - No, continue to merchant turn
+        │
+        ├─► [B] MERCHANT AGENT DECIDES
+        │     │
+        │     ├─► Context:
+        │     │     - policy: { floor_price, base_price, discount_budget }
+        │     │     - buyer's offer: { unit_price: 105, quantity: 10 }
+        │     │     - turn history
+        │     │
+        │     ├─► Check if bundle should be offered:
+        │     │     bundleLogic.shouldOfferBundle(quantity: 10)
+        │     │       - quantity >= 10? ✓ YES
+        │     │       - bundle not declined yet? ✓ YES
+        │     │       └─► Inject deterministic bundle:
+        │     │             {
+        │     │               type: 'bundle',
+        │     │               bundle_items: [{ item_id, quantity: 15 }],
+        │     │               unit_price: 100,  // 10% discount
+        │     │               rationale: "Better rate at higher volume"
+        │     │             }
+        │     │
+        │     ├─► (If no bundle) groqClient.getMerchantMove(context)
+        │     │     │
+        │     │     └─► POST https://api.groq.com/openai/v1/chat/completions
+        │     │           Body: {
+        │     │             model: "llama-3.3-70b-versatile",
+        │     │             messages: [
+        │     │               {
+        │     │                 role: "system",
+        │     │                 content: "You are a merchant agent.
+        │     │                          Your floor: ₹1000/unit (never go below).
+        │     │                          Your list: ₹1500/unit.
+        │     │                          Negotiate but hold firm near list price.
+        │     │                          All prices in INR (₹)."
+        │     │               },
+        │     │               {
+        │     │                 role: "user",
+        │     │                 content: "Buyer offered ₹105/unit for 10.
+        │     │                          Respond with JSON only."
+        │     │               }
+        │     │             ]
+        │     │           }
+        │     │                │
+        │     │                └─► Response: {
+        │     │                      content: '{
+        │     │                        "type": "counter",
+        │     │                        "unit_price": 110,
+        │     │                        "quantity": 10,
+        │     │                        "rationale": "Can meet at ₹110..."
+        │     │                      }'
+        │     │                    }
+        │     │
+        │     ├─► Parse LLM response → merchantMove
+        │     │
+        │     ├─► policyGate.checkPolicy(merchantMove, policy)
+        │     │     │
+        │     │     ├─► Check: unit_price >= floor_price?
+        │     │     │     - 110 >= 100? ✓ PASS
+        │     │     │
+        │     │     ├─► Check: discount within daily budget?
+        │     │     │     - (base_price - unit_price) * qty <= budget?
+        │     │     │     - (150 - 110) * 10 = 400 <= 5000? ✓ PASS
+        │     │     │
+        │     │     └─► If violation detected:
+        │     │           - Adjust price to floor
+        │     │           - Return: { result: 'adjusted', adjustedPrice }
+        │     │
+        │     │     Result: { result: 'pass' }
+        │     │
+        │     ├─► INSERT INTO turns
+        │     │     (session_id, agent: 'merchant', move_type: 'counter',
+        │     │      unit_price: 110, quantity: 10,
+        │     │      rationale: "Can meet at ₹110...",
+        │     │      gate_result: 'pass')
+        │     │
+        │     ├─► INSERT INTO audit_events
+        │     │     (session_id, event_type: 'gate_checked',
+        │     │      details: { agent: 'merchant', result: 'pass' })
+        │     │
+        │     ├─► Update currentOffer = merchantMove
+        │     │
+        │     └─► Check convergence: merchantMove.type == 'accept'?
+        │           - No, increment turnCount
+        │
+        ├─► turnCount++
+        │
+        └─► Loop condition: turnCount < 10 AND not converged
+              │
+              ├─► Continue to next turn
+              │
+              └─► (After 10 turns) FAILED - no agreement reached
+
+        ┌───────────────────────────────────────────────────┐
+        │            CONVERGENCE DETECTED                    │
+        │  (Either agent accepted the other's offer)        │
+        └───────────────────────────────────────────────────┘
+        │
+        ├─► [C] DUAL FINAL RE-CHECK
+        │     │
+        │     ├─► mandateGate.checkMandate(currentOffer, mandate)
+        │     │     - Verify buyer constraints still satisfied
+        │     │     - Even if merchant adjusted via policy gate
+        │     │
+        │     └─► policyGate.checkPolicy(currentOffer, policy)
+        │           - Verify merchant constraints still satisfied
+        │           - Ensure no race conditions with inventory
+        │
+        ├─► [D] EXECUTE DEAL
+        │     │
+        │     └─► dealExecutor.executeDeal(session_id, currentOffer)
+        │           │
+        │           ├─► Check for existing deal (idempotency):
+        │           │     SELECT * FROM deals WHERE session_id = ?
+        │           │     - If exists: return existing deal
+        │           │     - If not: proceed
+        │           │
+        │           ├─► Create Razorpay Order:
+        │           │     POST https://api.razorpay.com/v1/orders
+        │           │     Headers: { Authorization: "Basic <base64>" }
+        │           │     Body: {
+        │           │       amount: 110000,  // ₹1100 in paise
+        │           │       currency: "INR",
+        │           │       receipt: "session_123"
+        │           │     }
+        │           │          │
+        │           │          └─► Response: {
+        │           │                id: "order_K7h3h4h5j6k7l8",
+        │           │                amount: 110000,
+        │           │                currency: "INR",
+        │           │                status: "created"
+        │           │              }
+        │           │
+        │           ├─► INSERT INTO deals
+        │           │     (session_id, razorpay_order_id: 'order_K7h3h4h5',
+        │           │      final_unit_price: 110, final_quantity: 10,
+        │           │      final_total: 1100, status: 'pending')
+        │           │
+        │           ├─► UPDATE catalog_items
+        │           │     SET stock = stock - 10,
+        │           │         discount_used_today = discount_used_today + 400
+        │           │     WHERE id = 'item_xyz'
+        │           │
+        │           ├─► UPDATE sessions
+        │           │     SET status = 'converged'
+        │           │     WHERE id = 'session_123'
+        │           │
+        │           └─► INSERT INTO audit_events
+        │                 (session_id, event_type: 'deal_created',
+        │                  details: { razorpay_order_id, final_total })
+        │
+        └─► Response: {
+              converged: true,
+              turnsUsed: 6,
+              dealExecuted: true,
+              razorpayOrderId: 'order_K7h3h4h5',
+              paymentLink: 'https://razorpay.com/checkout/...'
+            }
+
+END
+```
+
+---
+
+### Webhook - Payment Confirmation Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    RAZORPAY WEBHOOK FLOW (ASYNC)                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+[1] USER COMPLETES PAYMENT
+    │
+    └─► Razorpay Checkout UI
+          - User pays ₹1100 via UPI/Card
+          - Payment captured by Razorpay
+
+[2] RAZORPAY FIRES WEBHOOK
+    │
+    └─► POST https://your-backend.com/webhooks/razorpay
+          Headers: {
+            X-Razorpay-Signature: "<HMAC-SHA256 signature>",
+            X-Razorpay-Event-Id: "evt_K7h3h4h5j6k7l9"
+          }
+          Body: {
+            event: "payment.captured",
+            payload: {
+              payment: {
+                entity: {
+                  order_id: "order_K7h3h4h5j6k7l8",
+                  amount: 110000,
+                  status: "captured"
+                }
+              }
+            }
+          }
+
+[3] BACKEND WEBHOOK HANDLER
+    │
+    ├─► routes/webhooks.ts (raw body parser, NOT JSON)
+    │     │
+    │     ├─► [A] VERIFY SIGNATURE
+    │     │     │
+    │     │     ├─► Compute HMAC-SHA256:
+    │     │     │     signature = hmac_sha256(
+    │     │     │       secret: RAZORPAY_WEBHOOK_SECRET,
+    │     │     │       message: raw_request_body
+    │     │     │     )
+    │     │     │
+    │     │     ├─► Compare with X-Razorpay-Signature header
+    │     │     │
+    │     │     └─► If mismatch:
+    │     │           - Return 400 Bad Request
+    │     │           - Do NOT process webhook
+    │     │           - Log security alert
+    │     │
+    │     ├─► [B] DEDUPLICATE
+    │     │     │
+    │     │     ├─► Check X-Razorpay-Event-Id in memory set
+    │     │     │
+    │     │     └─► If already processed:
+    │     │           - Return 200 OK (idempotent)
+    │     │           - Skip processing
+    │     │
+    │     ├─► [C] EXTRACT ORDER ID
+    │     │     │
+    │     │     └─► order_id = payload.payment.entity.order_id
+    │     │           - "order_K7h3h4h5j6k7l8"
+    │     │
+    │     ├─► [D] MARK DEAL AS SETTLED
+    │     │     │
+    │     │     └─► db/deals.markDealSettled(order_id)
+    │     │           │
+    │     │           ├─► UPDATE deals
+    │     │           │     SET status = 'settled',
+    │     │           │         webhook_confirmed_at = NOW()
+    │     │           │     WHERE razorpay_order_id = 'order_K7h3h4h5'
+    │     │           │
+    │     │           └─► INSERT INTO audit_events
+    │     │                 (deal_id, event_type: 'webhook_confirmed',
+    │     │                  details: {
+    │     │                    event_id: 'evt_K7h3h4h5j6k7l9',
+    │     │                    amount: 1100
+    │     │                  })
+    │     │
+    │     └─► Response: 200 OK
+    │
+    └─► [E] FRONTEND POLLING DETECTS CHANGE
+          │
+          └─► GET /sessions/session_123/deal (next poll cycle)
+                │
+                └─► Response: {
+                      razorpay_order_id: 'order_K7h3h4h5',
+                      status: 'settled',  ← Changed!
+                      webhook_confirmed_at: '2025-09-02T12:34:56Z'
+                    }
+                      │
+                      └─► Frontend: Update UI
+                            - Show "✓ Payment Confirmed"
+                            - Enable "View Receipt" button
+```
+
+---
+
+### Merchant Dashboard Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    MERCHANT DASHBOARD WORKFLOW                           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+[1] MERCHANT LOGS IN
+    │
+    └─► Navigate to MerchantHome.jsx
+          - Show quick actions: "List New Item" | "View Dashboard"
+
+[2] VIEW DASHBOARD
+    │
+    ├─► MerchantDashboard.jsx (on mount)
+    │     │
+    │     └─► GET /merchants/me/dashboard
+    │           Headers: { Authorization: "Bearer <token>" }
+    │                │
+    │                ├─► [Backend] Get merchant_id from JWT token
+    │                │
+    │                ├─► Query 1: Get inventory
+    │                │     SELECT ci.*,
+    │                │            (SELECT COUNT(*) FROM sessions
+    │                │             WHERE catalog_item_id = ci.id
+    │                │             AND status = 'active') as active_sessions,
+    │                │            (SELECT COUNT(*) FROM deals d
+    │                │             JOIN sessions s ON d.session_id = s.id
+    │                │             WHERE s.catalog_item_id = ci.id) as total_deals
+    │                │     FROM catalog_items ci
+    │                │     WHERE ci.merchant_id = ?
+    │                │
+    │                ├─► Query 2: Get recent sessions
+    │                │     SELECT s.*, u.display_name as buyer_name,
+    │                │            d.final_total, d.status as deal_status
+    │                │     FROM sessions s
+    │                │     JOIN users u ON s.buyer_id = u.id
+    │                │     LEFT JOIN deals d ON s.id = d.session_id
+    │                │     WHERE s.catalog_item_id IN (
+    │                │       SELECT id FROM catalog_items
+    │                │       WHERE merchant_id = ?
+    │                │     )
+    │                │     ORDER BY s.created_at DESC
+    │                │     LIMIT 20
+    │                │
+    │                └─► Response: {
+    │                      inventory: [
+    │                        {
+    │                          id: 'item_xyz',
+    │                          item_name: 'Laptop',
+    │                          base_price: 1500,
+    │                          floor_price: 1000,
+    │                          stock: 90,
+    │                          active_sessions: 2,
+    │                          total_deals: 5
+    │                        }
+    │                      ],
+    │                      sessions: [
+    │                        {
+    │                          id: 'session_123',
+    │                          status: 'converged',
+    │                          buyer_name: 'John Doe',
+    │                          final_total: 1100,
+    │                          deal_status: 'settled'
+    │                        }
+    │                      ],
+    │                      stats: {
+    │                        total_items: 5,
+    │                        active_sessions: 3,
+    │                        total_revenue: 15000
+    │                      }
+    │                    }
+    │
+    └─► Frontend: Display
+          - Inventory table with usage stats
+          - Expandable session rows
+          - Summary stats cards
+
+[3] LIST NEW ITEM
+    │
+    └─► CatalogEditor.jsx
+          │
+          └─► POST /catalog-items
+                Body: {
+                  merchant_id,
+                  item_name: "Gaming Mouse",
+                  base_price: 80,     // list price (ceiling)
+                  floor_price: 50,    // absolute minimum
+                  stock: 100,
+                  discount_budget_per_day: 2000
+                }
+                     │
+                     └─► INSERT INTO catalog_items
+                           │
+                           └─► Response: { id: 'item_abc', ... }
+                                 │
+                                 └─► Navigate back to dashboard
+```
+
+---
+
+### Ledger - Audit Trail Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       LEDGER AUDIT TRAIL FLOW                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+[1] VIEW ALL SESSIONS
+    │
+    ├─► LedgerList.jsx
+    │     │
+    │     └─► GET /ledger/sessions
+    │           Headers: { Authorization: "Bearer <token>" }
+    │                │
+    │                ├─► [Backend] Check user role from JWT
+    │                │
+    │                ├─► If buyer:
+    │                │     SELECT s.*, ci.item_name, m.display_name as merchant,
+    │                │            d.final_total, d.status as deal_status,
+    │                │            (SELECT COUNT(*) FROM turns
+    │                │             WHERE session_id = s.id) as turn_count
+    │                │     FROM sessions s
+    │                │     JOIN catalog_items ci ON s.catalog_item_id = ci.id
+    │                │     JOIN merchants m ON ci.merchant_id = m.id
+    │                │     LEFT JOIN deals d ON s.id = d.session_id
+    │                │     WHERE s.buyer_id = ?
+    │                │     ORDER BY s.created_at DESC
+    │                │
+    │                └─► If merchant:
+    │                      SELECT s.*, ci.item_name, u.display_name as buyer,
+    │                             d.final_total, d.status as deal_status,
+    │                             (SELECT COUNT(*) FROM turns
+    │                              WHERE session_id = s.id) as turn_count
+    │                      FROM sessions s
+    │                      JOIN catalog_items ci ON s.catalog_item_id = ci.id
+    │                      JOIN users u ON s.buyer_id = u.id
+    │                      LEFT JOIN deals d ON s.id = d.session_id
+    │                      WHERE ci.merchant_id = ?
+    │                      ORDER BY s.created_at DESC
+    │
+    └─► Frontend: Display list with status badges
+          - 🟢 Converged | 🔴 Failed | 🟡 Active
+
+[2] VIEW SESSION DETAIL (Full Audit Trail)
+    │
+    ├─► User clicks on a session
+    │
+    └─► LedgerDetail.jsx
+          │
+          └─► GET /ledger/sessions/session_123
+                Headers: { Authorization: "Bearer <token>" }
+                     │
+                     ├─► Query 1: Get session with full context
+                     │     SELECT s.*, ci.*, m.*,
+                     │            ma.max_total_spend, ma.max_unit_price,
+                     │            d.razorpay_order_id, d.final_total, d.status
+                     │     FROM sessions s
+                     │     JOIN catalog_items ci ON s.catalog_item_id = ci.id
+                     │     JOIN mandates ma ON s.mandate_id = ma.id
+                     │     LEFT JOIN deals d ON s.id = d.session_id
+                     │     WHERE s.id = ?
+                     │
+                     ├─► Query 2: Get all turns (negotiation history)
+                     │     SELECT *
+                     │     FROM turns
+                     │     WHERE session_id = 'session_123'
+                     │     ORDER BY created_at ASC
+                     │
+                     └─► Query 3: Get audit events
+                           SELECT *
+                           FROM audit_events
+                           WHERE session_id = 'session_123'
+                           ORDER BY created_at ASC
+                                │
+                                └─► Response: {
+                                      session: {
+                                        id: 'session_123',
+                                        status: 'converged',
+                                        catalog_item: {
+                                          item_name: 'Laptop',
+                                          base_price: 1500,
+                                          floor_price: 1000
+                                        },
+                                        mandate: {
+                                          max_total_spend: 5000,
+                                          max_unit_price: 120
+                                        }
+                                      },
+                                      turns: [
+                                        {
+                                          turn_num: 1,
+                                          agent: 'buyer',
+                                          move_type: 'propose',
+                                          unit_price: 100,
+                                          quantity: 10,
+                                          rationale: "Starting at ₹100/unit...",
+                                          gate_result: 'pass',
+                                          created_at: '...'
+                                        },
+                                        {
+                                          turn_num: 2,
+                                          agent: 'merchant',
+                                          move_type: 'counter',
+                                          unit_price: 120,
+                                          quantity: 10,
+                                          rationale: "Can meet at ₹120...",
+                                          gate_result: 'pass',
+                                          created_at: '...'
+                                        },
+                                        ...
+                                      ],
+                                      deal: {
+                                        razorpay_order_id: 'order_K7h3h4h5',
+                                        final_unit_price: 110,
+                                        final_quantity: 10,
+                                        final_total: 1100,
+                                        status: 'settled'
+                                      },
+                                      audit_trail: [
+                                        {
+                                          event_type: 'gate_checked',
+                                          details: { agent: 'buyer', result: 'pass' }
+                                        },
+                                        {
+                                          event_type: 'deal_created',
+                                          details: { razorpay_order_id: '...' }
+                                        },
+                                        {
+                                          event_type: 'webhook_confirmed',
+                                          details: { amount: 1100 }
+                                        }
+                                      ]
+                                    }
+                                      │
+                                      └─► Frontend: Display
+                                            - Turn-by-turn negotiation theater
+                                            - Proof of Fair Deal section:
+                                              • Buyer mandate satisfied: ✓
+                                                - Final: ₹110/unit × 10 = ₹1100
+                                                - Within ₹5000 budget ✓
+                                                - Unit price ≤ ₹120 ✓
+                                              • Merchant floor respected: ✓
+                                                - Final: ₹110/unit
+                                                - Above ₹100 floor ✓
+                                            - Razorpay order ID
+                                            - Payment status badge
+```
+
+---
+
+### Database Schema Relationships
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       DATABASE ENTITY RELATIONSHIPS                      │
+└─────────────────────────────────────────────────────────────────────────┘
+
+users (PK: id)
+  │
+  ├──┬── [role = 'buyer']
+  │  │     │
+  │  │     └──► mandates (FK: user_id)
+  │  │            │
+  │  │            └──► sessions (FK: mandate_id)
+  │  │
+  │  └── [role = 'merchant']
+  │        │
+  │        └──► merchants (FK: user_id)
+  │               │
+  │               └──► catalog_items (FK: merchant_id)
+  │                      │
+  │                      └──► sessions (FK: catalog_item_id)
+  │
+  └──► sessions (FK: buyer_id)
+
+sessions (PK: id)
+  │
+  ├──► turns (FK: session_id)
+  │      - Each turn records one agent's move
+  │      - Contains: agent, move_type, price, quantity, rationale
+  │      - gate_result: 'pass' | 'adjusted' | 'blocked'
+  │
+  ├──► deals (FK: session_id) [unique constraint]
+  │      - Created on convergence
+  │      - Contains: razorpay_order_id, final_price, status
+  │      - status: 'pending' → 'settled' (via webhook)
+  │
+  └──► audit_events (FK: session_id)
+         - event_type: gate_checked, deal_created, webhook_confirmed
+         - details: JSONB with event-specific data
+         - Immutable log for compliance
+
+
+RELATIONSHIPS DIAGRAM:
+
+     ┌──────┐
+     │users │
+     └──┬───┘
+        │
+    ┌───┴────────┐
+    │            │
+[buyer]     [merchant]
+    │            │
+    ▼            ▼
+┌─────────┐  ┌──────────┐
+│mandates │  │merchants │
+└────┬────┘  └────┬─────┘
+     │            │
+     │            ▼
+     │      ┌──────────────┐
+     │      │catalog_items │
+     │      └──────┬───────┘
+     │             │
+     └────┐   ┌────┘
+          │   │
+          ▼   ▼
+      ┌──────────┐
+      │sessions  │
+      └────┬─────┘
+           │
+   ┌───────┼────────┐
+   │       │        │
+   ▼       ▼        ▼
+┌──────┐ ┌────┐  ┌──────────────┐
+│turns │ │deals│  │audit_events │
+└──────┘ └──┬──┘  └──────────────┘
+            │
+            ▼
+     razorpay_order_id
+     (external reference)
+```
+
+---
+
+### API Endpoints - Complete Reference
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         API ENDPOINTS SUMMARY                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+AUTHENTICATION
+├─ POST   /auth/signup          Create user account (buyer or merchant)
+├─ POST   /auth/login           Login and receive JWT token
+└─ GET    /auth/me              Get current authenticated user
+
+MANDATES (Buyer only)
+├─ POST   /mandates             Create buyer mandate (budget constraints)
+└─ GET    /mandates/:id         Get mandate details
+
+CATALOG
+├─ POST   /catalog-items        List item for sale (merchant only)
+├─ GET    /catalog-items        Browse all available items (public)
+└─ GET    /catalog-items/:id    Get item details with pricing corridor
+
+MERCHANTS
+├─ GET    /merchants/me         Get merchant profile
+└─ GET    /merchants/me/dashboard  Get inventory, sessions, revenue stats
+
+SESSIONS (Negotiation)
+├─ POST   /sessions             Create negotiation session
+├─ POST   /sessions/:id/run     Run negotiation (execute orchestrator)
+├─ GET    /sessions/:id         Get session details
+├─ GET    /sessions/:id/turns   Get all turns (polling endpoint)
+└─ GET    /sessions/:id/deal    Get deal details (Razorpay order ID)
+
+LEDGER (Audit Trail)
+├─ GET    /ledger/sessions      List all sessions (role-aware filter)
+└─ GET    /ledger/sessions/:id  Get full audit trail for one session
+
+WEBHOOKS
+└─ POST   /webhooks/razorpay    Razorpay payment confirmation (external)
+                                 Requires: HMAC-SHA256 signature verification
+```
+
+---
+
+### Gate Architecture - The Safety Mechanism
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          GATE VERIFICATION LOGIC                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+MANDATE GATE (Buyer Constraints)
+─────────────────────────────────
+Input: buyerMove { unit_price, quantity }
+       mandate { max_total_spend, max_unit_price }
+
+Checks:
+  1. unit_price <= max_unit_price?
+       - If NO: ADJUST price to max_unit_price
+
+  2. unit_price * quantity <= max_total_spend?
+       - If NO: ADJUST quantity = floor(max_total_spend / unit_price)
+
+  3. quantity > 0 after adjustments?
+       - If NO: BLOCK move (impossible to satisfy mandate)
+
+Output:
+  - result: 'pass' | 'adjusted' | 'blocked'
+  - adjustedPrice (if adjusted)
+  - adjustedQuantity (if adjusted)
+  - reason (human-readable explanation)
+
+Example:
+  LLM proposes: { unit_price: 150, quantity: 50 }
+  Mandate: { max_total_spend: 5000, max_unit_price: 120 }
+
+  Check 1: 150 > 120 ❌
+    → Adjust: unit_price = 120
+
+  Check 2: 120 * 50 = 6000 > 5000 ❌
+    → Adjust: quantity = floor(5000 / 120) = 41
+
+  Final move: { unit_price: 120, quantity: 41 }
+  Gate result: 'adjusted'
+  Reason: "Adjusted unit price to mandate ceiling; reduced quantity to fit budget"
+
+
+POLICY GATE (Merchant Constraints)
+──────────────────────────────────
+Input: merchantMove { unit_price, quantity }
+       policy { floor_price, base_price, discount_budget_per_day,
+                discount_used_today, stock }
+
+Checks:
+  1. unit_price >= floor_price?
+       - If NO: ADJUST price to floor_price
+       - Reason: "Floor price is a hard line"
+
+  2. discount = (base_price - unit_price) * quantity
+     discount <= (discount_budget_per_day - discount_used_today)?
+       - If NO: ADJUST price upward or reduce quantity
+       - Reason: "Daily discount budget exceeded"
+
+  3. quantity <= stock?
+       - If NO: REJECT move
+       - Reason: "Insufficient inventory"
+
+Output:
+  - result: 'pass' | 'adjusted' | 'blocked'
+  - adjustedPrice (if adjusted)
+  - reason (human-readable explanation)
+
+Example:
+  LLM proposes: { unit_price: 95, quantity: 10 }
+  Policy: { floor_price: 100, base_price: 150, discount_budget: 2000,
+            discount_used: 1500, stock: 100 }
+
+  Check 1: 95 < 100 ❌
+    → Adjust: unit_price = 100
+
+  Check 2: (150 - 100) * 10 = 500
+           500 <= (2000 - 1500) = 500 ✓
+    → Pass
+
+  Final move: { unit_price: 100, quantity: 10 }
+  Gate result: 'adjusted'
+  Reason: "Adjusted to floor price; cannot sell below ₹100/unit"
+```
+
+---
+
+This markdown-based architecture provides a complete visual reference for understanding Vakil's system design, data flows, and API interactions. Use it as a foundation for creating formal architecture diagrams or for onboarding new developers to the project.
